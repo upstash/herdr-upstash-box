@@ -55,7 +55,7 @@ herdr plugin config-dir upstash.box
 }
 ```
 
-Environment variables win over the file. The file must be a regular file owned by you with mode 600, otherwise the plugin refuses to read it.
+Environment variables win over the file. The file must be a regular file that you own; if other users can read it, the plugin tightens it to mode 600 before reading.
 
 ## Configure
 
