@@ -1,0 +1,186 @@
+id = "upstash.box"
+name = "Upstash Box"
+version = "0.2.0"
+min_herdr_version = "0.8.0"
+description = "Run a coding agent in an Upstash Box from the worktree you are looking at."
+platforms = ["linux", "macos"]
+
+# On `plugin install`: fetch dependencies (the Box SDK and CLI), compile to dist/, then drop
+# the build-only packages. The CLI that native mode spawns is a dependency, not a PATH lookup.
+[[build]]
+command = ["npm", "ci"]
+
+[[build]]
+command = ["npm", "run", "build"]
+
+[[build]]
+command = ["npm", "prune", "--omit=dev"]
+
+[[actions]]
+id = "start-agent"
+title = "Start agent in Upstash Box"
+description = "Create a box for the focused Git worktree and open the configured agent in a new pane."
+contexts = ["workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "reconnect"
+title = "Reconnect to Upstash Box agent"
+description = "Attach to the agent mapped to the focused pane, resuming the box if it is paused."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "stop"
+title = "Stop Upstash Box agent"
+description = "End the agent session and keep the box and its files."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "apply-changes"
+title = "Apply Upstash Box changes locally"
+description = "Export the box's changes as a Git patch, check it against the worktree, then apply it after approval."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "info"
+title = "Show Upstash Box mapping"
+description = "Show the box, agent, model, lifecycle, and paths mapped to the focused pane."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "delete-box"
+title = "Delete Upstash Box"
+description = "Require typed confirmation, then delete the box and forget its mapping."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "pause"
+title = "Pause Upstash Box"
+description = "Stop the agent session and pause the box. Active schedules may wake it at their next cron."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "resume"
+title = "Resume Upstash Box"
+description = "Bring a paused box back without opening the agent."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "snapshot"
+title = "Snapshot Upstash Box"
+description = "Save the box state as a named snapshot."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "fork"
+title = "Fork Upstash Box"
+description = "Require typed confirmation, then snapshot the box and start a second box from it for the same worktree."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "previews"
+title = "Open Upstash Box previews"
+description = "Expose a configured port on the box with a public URL, or remove one."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "dashboard"
+title = "Open Upstash Box dashboard"
+description = "Open a live board of every box this plugin owns, with every verb one key away."
+contexts = ["global", "workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "run-task"
+title = "Run typed task in Upstash Box"
+description = "Run a server-side agent task with a JSON Schema response and persist its typed result."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "run-results"
+title = "Show Upstash Box run results"
+description = "Sync scheduled run records and show recent persisted agent results."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "schedules"
+title = "Manage Upstash Box schedules"
+description = "List, create, pause, resume, and delete server-side agent schedules."
+contexts = ["pane"]
+command = ["node", "dist/action.js"]
+
+[[panes]]
+id = "start"
+title = "Start in Upstash Box"
+placement = "split"
+command = ["node", "dist/start-pane.js"]
+
+[[panes]]
+id = "agent"
+title = "Upstash Box agent"
+placement = "split"
+command = ["node", "dist/agent-pane.js"]
+
+[[panes]]
+id = "native"
+title = "Upstash Box"
+placement = "split"
+command = ["node", "dist/native-pane.js"]
+
+[[panes]]
+id = "operation"
+title = "Upstash Box"
+placement = "popup"
+width = "88%"
+height = "80%"
+command = ["node", "dist/operation-pane.js"]
+
+[[panes]]
+id = "confirmation"
+title = "Confirm Upstash Box deletion"
+placement = "popup"
+width = "80%"
+height = "60%"
+command = ["node", "dist/confirmation-pane.js"]
+
+[[panes]]
+id = "dashboard"
+title = "Upstash Box dashboard"
+placement = "zoomed"
+command = ["node", "dist/dashboard-pane.js"]
+
+[[panes]]
+id = "previews"
+title = "Upstash Box previews"
+placement = "popup"
+width = "88%"
+height = "70%"
+command = ["node", "dist/previews-pane.js"]
+
+[[panes]]
+id = "agent-runs"
+title = "Upstash Box agent runs"
+placement = "popup"
+width = "88%"
+height = "80%"
+command = ["node", "dist/agent-runs-pane.js"]
+
+[[panes]]
+id = "schedules"
+title = "Upstash Box schedules"
+placement = "popup"
+width = "88%"
+height = "80%"
+command = ["node", "dist/schedules-pane.js"]

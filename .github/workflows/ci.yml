@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Catch a published Box SDK or CLI release breaking the plugin before a user does.
+    - cron: "0 6 * * 1"
+
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run ci:lint
+      - run: npm test
+      - run: npm run build
+      - name: Manifest points at built entrypoints
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const manifest = fs.readFileSync("herdr-plugin.toml", "utf8");
+            const commands = [...manifest.matchAll(/command = \["node", "(dist\/[^"]+)"\]/g)].map((m) => m[1]);
+            if (commands.length === 0) throw new Error("no plugin commands found in the manifest");
+            for (const command of commands) {
+              if (!fs.existsSync(command)) throw new Error(`manifest points at a missing build output: ${command}`);
+            }
+            console.log(`${commands.length} entrypoints present`);
+          '
