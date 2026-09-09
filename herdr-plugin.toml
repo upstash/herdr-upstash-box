@@ -1,6 +1,6 @@
 id = "upstash.box"
 name = "Upstash Box"
-version = "0.2.0"
+version = "0.1.0"
 min_herdr_version = "0.8.0"
 description = "Run a coding agent in an Upstash Box from the worktree you are looking at."
 platforms = ["linux", "macos"]
