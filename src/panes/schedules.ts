@@ -78,7 +78,7 @@ async function mutateSchedule(
   const selectedId = command.kind === "create" ? null : resolveScheduleId(listed, command.id);
   if (command.kind === "delete") {
     const confirmation = await prompt(`Type DELETE to delete schedule ${selectedId}: `);
-    if (confirmation.trim() !== "DELETE") return;
+    if (confirmation?.trim() !== "DELETE") return;
   }
   await withMappingLock(mappingId, deps.state ?? { env }, async () => {
     const mapping = readState(deps.state ?? { env }).mappings[mappingId];
@@ -163,7 +163,9 @@ export async function runSchedulesPane(
     ]);
     clearScreen(write);
     renderSchedules(write, mapping.boxName, schedules);
-    const command = parseScheduleCommand(await prompt("Schedule command: "));
+    const answer = await prompt("Schedule command: ");
+    if (answer === null) return;
+    const command = parseScheduleCommand(answer);
     if (command.kind === "close") return;
     if (command.kind === "invalid") {
       write("\nInvalid schedule command.\n");

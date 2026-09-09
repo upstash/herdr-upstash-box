@@ -543,6 +543,11 @@ describe("operation pane", () => {
     expect(declined).toBe("canceled");
     expect(fs.readFileSync(`${root}/file.txt`, "utf8")).toBe("before\n");
     expect(readState(state).mappings[MAPPING_ID]?.lastAppliedExportCommit).toBe(COMMIT_A);
+    // A prompt that timed out answers null, which must read as "no", never as consent.
+    const timedOut = await applyChanges(MAPPING_ID, { ...deps, confirm: async () => null });
+    expect(timedOut).toBe("canceled");
+    expect(fs.readFileSync(`${root}/file.txt`, "utf8")).toBe("before\n");
+    expect(readState(state).mappings[MAPPING_ID]?.lastAppliedExportCommit).toBe(COMMIT_A);
     const applied = await applyChanges(MAPPING_ID, { ...deps, confirm: async () => "y" });
     expect(applied).toBe("applied");
     expect(fs.readFileSync(`${root}/file.txt`, "utf8")).toBe("after\n");
