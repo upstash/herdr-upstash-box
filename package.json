@@ -35,8 +35,8 @@
     "check": "npm run typecheck && npm test && npm run ci:lint"
   },
   "dependencies": {
-    "@upstash/box": "^0.7.4",
-    "@upstash/box-cli": "^0.3.0",
+    "@upstash/box": "^0.7.5",
+    "@upstash/box-cli": "^0.3.1",
     "zod": "^4.5.4"
   },
   "devDependencies": {
