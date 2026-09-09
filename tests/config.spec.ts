@@ -123,9 +123,14 @@ describe("secrets", () => {
     expect(() => loadSecrets({ directory })).toThrow(/secrets.json entry/);
   });
 
-  it("refuses a secrets file other users can read", () => {
-    const directory = configDir({ "secrets.json": "{}" }, 0o644);
-    expect(() => loadSecrets({ directory })).toThrow(/chmod 600/);
+  it("tightens a secrets file other users can read instead of refusing it", () => {
+    const directory = configDir(
+      { "secrets.json": JSON.stringify({ UPSTASH_BOX_API_KEY: "box" }) },
+      0o644,
+    );
+    const file = path.join(directory, "secrets.json");
+    expect(loadSecrets({ directory })).toEqual({ UPSTASH_BOX_API_KEY: "box" });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it("refuses a symlinked secrets file and one owned by someone else", () => {

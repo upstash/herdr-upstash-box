@@ -262,11 +262,17 @@ export function checkSecretsFile(file: string, uid: number | undefined = process
   if (uid !== undefined && stat.uid !== uid) {
     throw new PluginError("insecure_secrets_file", `${file} must be owned by the current user.`);
   }
+  // Ours and a regular file, so tighten it rather than making the caller run chmod. An editor
+  // writing this file lands on 644 under the usual umask, which would otherwise fail every start.
   if ((stat.mode & 0o077) !== 0) {
-    throw new PluginError(
-      "insecure_secrets_file",
-      `${file} is readable by other users. Run: chmod 600 ${file}`,
-    );
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch (error) {
+      throw new PluginError(
+        "insecure_secrets_file",
+        `${file} is readable by other users and could not be tightened: ${(error as Error).message}. Run: chmod 600 ${file}`,
+      );
+    }
   }
 }
 
