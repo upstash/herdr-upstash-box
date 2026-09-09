@@ -302,9 +302,14 @@ export async function runTypedTask(
   deps: AgentRunsPaneDeps = {},
 ): Promise<StoredRun> {
   const prompt = deps.prompt ?? ask;
-  const promptText = oneLinePrompt(await prompt("Task prompt: "));
+  const promptAnswer = await prompt("Task prompt: ");
+  // A timed-out prompt must not start a billed run.
+  if (promptAnswer === null) throw new PluginError("prompt_timed_out", "No task prompt was given.");
+  const promptText = oneLinePrompt(promptAnswer);
   const defaultText = JSON.stringify(DEFAULT_RESPONSE_SCHEMA);
   const schemaInput = await prompt(`JSON Schema [${defaultText}]: `);
+  if (schemaInput === null)
+    throw new PluginError("prompt_timed_out", "No response schema was given.");
   const { json, schema } = responseSchemaFromJson(schemaInput);
   const { stored, result } = await executeTypedRun(mappingId, promptText, json, schema, deps);
   const write = deps.write ?? stdoutWriter;

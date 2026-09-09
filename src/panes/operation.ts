@@ -296,7 +296,7 @@ export async function applyChanges(
         const answer = await (deps.confirm ?? ask)(
           "Apply these changes to the local worktree? [y/N] ",
         );
-        if (!["y", "yes"].includes(answer.trim().toLowerCase())) {
+        if (!["y", "yes"].includes((answer ?? "").trim().toLowerCase())) {
           write("\nCanceled. The local worktree was not changed.\n");
           return "canceled";
         }

@@ -34,19 +34,9 @@ export function isInteractive(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
-export async function ask(question: string): Promise<string> {
-  if (!isInteractive()) {
-    throw new PluginError(
-      "interactive_terminal_required",
-      "This operation needs an interactive Herdr terminal.",
-    );
-  }
-  const terminal = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return await terminal.question(question);
-  } finally {
-    terminal.close();
-  }
+// Bounded like every other prompt: an unanswered one would hold Herdr's single popup slot forever.
+export async function ask(question: string): Promise<string | null> {
+  return askWithTimeout(question, DISMISS_TIMEOUT_MS);
 }
 
 export const DISMISS_TIMEOUT_MS = 120_000;

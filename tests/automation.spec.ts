@@ -177,6 +177,28 @@ describe("typed runs", () => {
     expect(output.join("")).toContain("Cost: $0.004000");
   });
 
+  it("does not start a billed run when the task prompt times out", async () => {
+    const state = await nativeState();
+    const { box, calls } = fakeBox({
+      agentRun: async () => {
+        throw new Error("must not run");
+      },
+    });
+    await expect(
+      runTypedTask(MAPPING_ID, {
+        state,
+        config: { ...DEFAULT_CONFIG, mode: "native" },
+        env: { UPSTASH_BOX_API_KEY: "k" },
+        client: fakeClient({ "box-1": box }),
+        ensureRunning: async () => ({ status: "running", resumed: false }),
+        // A timed-out prompt answers null.
+        prompt: async () => null,
+        write: () => {},
+      }),
+    ).rejects.toMatchObject({ code: "prompt_timed_out" });
+    expect(calls.agentRuns).toEqual([]);
+  });
+
   it("persists failed attempts", async () => {
     const state = await nativeState();
     const { box } = fakeBox({

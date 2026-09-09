@@ -57,6 +57,7 @@ export async function runPreviewsPane(
       `\nConfigured ports: ${config.previewPorts.join(", ")}. Auth: ${config.previewAuth === "basic" ? "basic auth on new URLs" : "none, anyone with the link can reach it"}.\n`,
     );
     const answer = await prompt("Port to expose, d<port> to remove, Enter to close: ");
+    if (answer === null) return;
     const command = parsePreviewCommand(answer, config.previewPorts);
     if (command.kind === "close") return;
     if (command.kind === "invalid") {
