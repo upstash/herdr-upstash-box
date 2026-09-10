@@ -82,6 +82,11 @@ export const DEFAULT_MODELS: Readonly<Record<HarnessId, string>> = Object.freeze
   opencode: "anthropic/claude-sonnet-5",
 });
 
+export const STANDARD_CREDENTIAL_NAMES: ReadonlySet<string> = new Set([
+  ...Object.values(PROVIDER_KEY_ENV),
+  CLAUDE_OAUTH_TOKEN_ENV,
+]);
+
 export interface ProviderKey {
   name: string;
   value: string;
@@ -129,6 +134,14 @@ export function launchEnv(harness: Harness, model: string, key: ProviderKey): st
     case Agent.ClaudeCode:
       // Claude Code 2.1+ sends ANTHROPIC_AUTH_TOKEN as Authorization: Bearer.
       // ANTHROPIC_API_KEY is x-api-key and must be blank or it falls back to Anthropic/Max.
+      // A subscription token authenticates only against Anthropic; sent to OpenRouter it would be a
+      // bearer for the wrong service, so this is refused rather than tried.
+      if (provider === "openrouter" && key.name === CLAUDE_OAUTH_TOKEN_ENV) {
+        throw new PluginError(
+          "credential_mismatch",
+          `${CLAUDE_OAUTH_TOKEN_ENV} cannot be used with ${model}. Use OPENROUTER_API_KEY for an openrouter/ model, or an anthropic/ model for the subscription.`,
+        );
+      }
       if (provider === "openrouter") {
         return [
           ...claudeEnv({ ANTHROPIC_AUTH_TOKEN: key.value }),
