@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { BoxError } from "@upstash/box";
 import { sdkClient, type BoxClient } from "../box.js";
 import {
   configDirectory,
@@ -35,8 +35,6 @@ export interface SetupPaneDeps {
   prompt?: (question: string) => Promise<string | null>;
   promptSecret?: (question: string) => Promise<string | null>;
   client?: BoxClient;
-  claudeOnPath?: () => boolean;
-  runSetupToken?: () => number;
 }
 
 export type SetupOutcome = "saved" | "aborted";
@@ -73,12 +71,11 @@ const OPENCODE_PROVIDER_CHOICES: readonly Choice<Provider>[] = [
   { value: "openai", label: "OpenAI" },
 ];
 
-function claudeOnPath(): boolean {
-  return spawnSync("sh", ["-c", "command -v claude >/dev/null 2>&1"]).status === 0;
-}
+// The shape `claude setup-token` prints; a Console key pasted here by mistake fails this.
+const OAUTH_TOKEN = /^sk-ant-oat01-[A-Za-z0-9_-]{32,}$/;
 
-function runSetupToken(): number {
-  return spawnSync("claude", ["setup-token"], { stdio: "inherit" }).status ?? 1;
+export function isClaudeOAuthToken(value: string): boolean {
+  return OAUTH_TOKEN.test(value.trim());
 }
 
 // A blank answer keeps the current value; a number picks; anything else asks again.
@@ -124,9 +121,25 @@ interface CredentialPlan {
   hint: string | null;
 }
 
+// Subscription first: it is what most Claude Code users already pay for. A Console key is the
+// default only when one is already present and no token is.
+export function defaultClaudeCredential(
+  configured: Pick<PluginConfig, "providerApiKeyEnv" | "model">,
+  present: (name: string) => boolean,
+): ClaudeCredential {
+  if (configured.providerApiKeyEnv === CLAUDE_OAUTH_TOKEN_ENV) return "oauth";
+  if (configured.providerApiKeyEnv === PROVIDER_KEY_ENV.anthropic) return "anthropic";
+  if (configured.providerApiKeyEnv === PROVIDER_KEY_ENV.openrouter) return "openrouter";
+  if (present(CLAUDE_OAUTH_TOKEN_ENV)) return "oauth";
+  if (configured.model.startsWith("openrouter/")) return "openrouter";
+  if (present(PROVIDER_KEY_ENV.anthropic)) return "anthropic";
+  return "oauth";
+}
+
 async function planCredential(
   harness: HarnessId,
   configured: PluginConfig,
+  present: (name: string) => boolean,
   prompt: (question: string) => Promise<string | null>,
   write: Writer,
 ): Promise<CredentialPlan | null> {
@@ -153,12 +166,7 @@ async function planCredential(
       hint: null,
     };
   }
-  const current: ClaudeCredential =
-    configured.providerApiKeyEnv === CLAUDE_OAUTH_TOKEN_ENV
-      ? "oauth"
-      : configured.model.startsWith("openrouter/")
-        ? "openrouter"
-        : "anthropic";
+  const current = defaultClaudeCredential(configured, present);
   const credential = await choose(prompt, write, "Credential", CLAUDE_CREDENTIAL_CHOICES, current);
   if (credential === null) return null;
   if (credential === "oauth") {
@@ -187,6 +195,10 @@ function writePrivateJson(file: string, value: Record<string, unknown>): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   fs.chmodSync(file, 0o600);
+}
+
+function isAuthFailure(error: unknown): boolean {
+  return error instanceof BoxError && (error.statusCode === 401 || error.statusCode === 403);
 }
 
 function sourceOf(name: string, env: NodeJS.ProcessEnv, secrets: Record<string, string>): string {
@@ -233,6 +245,11 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
       validated = true;
       if (!resolveSecret(BOX_API_KEY_ENV, { env, secrets })) newSecrets[BOX_API_KEY_ENV] = boxKey;
     } catch (error) {
+      // Only a refused key counts against the attempts; an unreachable API is not the user's fault.
+      if (!isAuthFailure(error)) {
+        write(`\nCould not reach the Upstash Box API: ${errorMessage(error)}\n`);
+        return abort();
+      }
       write(`That key was rejected: ${errorMessage(error)}\n`);
       boxKey = undefined;
     }
@@ -250,33 +267,39 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
   let model = harness === configured.harness ? configured.model : DEFAULT_MODELS[harness];
   let providerApiKeyEnv: string | null = null;
   if (mode === "tui") {
-    const plan = await planCredential(harness, configured, prompt, write);
+    const present = (name: string) => Boolean(resolveSecret(name, { env, secrets }));
+    const plan = await planCredential(harness, configured, present, prompt, write);
     if (plan === null) return abort();
     model = plan.model;
     providerApiKeyEnv = plan.name;
-    const existing = resolveSecret(plan.name, { env, secrets });
-    if (existing) {
-      write(`\n${plan.name}: found in ${sourceOf(plan.name, env, secrets)}.\n`);
-    } else {
+    let wanted = !present(plan.name);
+    if (!wanted) {
+      const answer = await prompt(
+        `\n${plan.name}: found in ${sourceOf(plan.name, env, secrets)}. Enter keeps it, r replaces it: `,
+      );
+      if (answer === null) return abort();
+      wanted = answer.trim().toLowerCase() === "r";
+    }
+    if (wanted) {
       if (plan.hint === "setup-token") {
-        if ((deps.claudeOnPath ?? claudeOnPath)()) {
-          write(
-            "\nRunning `claude setup-token`. Approve it in the browser, then paste the token here.\n\n",
-          );
-          (deps.runSetupToken ?? runSetupToken)();
-        } else {
-          write(
-            "\nClaude Code is not installed here. Run `claude setup-token` on a machine where it is, then paste the token.\n",
-          );
-        }
+        write(
+          "\nIn another terminal run `claude setup-token`, approve it in the browser, and paste the token it prints here. It is not echoed.\n",
+        );
       }
       const value = await promptSecret(`${plan.name}: `);
       if (value === null) return abort();
-      if (!value.trim()) {
+      const trimmed = value.trim();
+      if (!trimmed) {
         write(`\n${plan.name} is required for TUI mode with this agent.\n`);
         return "aborted";
       }
-      newSecrets[plan.name] = value.trim();
+      if (plan.hint === "setup-token" && !isClaudeOAuthToken(trimmed)) {
+        write(
+          "\nThat is not a `claude setup-token` token; they start with sk-ant-oat01-. Nothing was written.\n",
+        );
+        return "aborted";
+      }
+      newSecrets[plan.name] = trimmed;
     }
   }
 

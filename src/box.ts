@@ -53,6 +53,19 @@ export function providerKeyCandidates(config: CredentialConfig): string[] {
   return credentialCandidates(getHarness(config.harness), config.model);
 }
 
+// providerApiKeyEnv is written for the configured harness. A mapping started on another harness
+// through start-codex or start-opencode must not read a variable named for Claude Code.
+export function credentialConfigFor(
+  config: Pick<PluginConfig, "providerApiKeyEnv" | "harness">,
+  mapping: Pick<Mapping, "harness" | "model">,
+): CredentialConfig {
+  return {
+    providerApiKeyEnv: config.harness === mapping.harness ? config.providerApiKeyEnv : null,
+    harness: mapping.harness,
+    model: mapping.model,
+  };
+}
+
 export function providerKeyName(config: CredentialConfig): string {
   return providerKeyCandidates(config).join(" or ");
 }

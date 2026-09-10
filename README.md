@@ -48,7 +48,7 @@ herdr plugin link "$(pwd)"
 herdr plugin action invoke setup --plugin upstash.box
 ```
 
-Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent, which mode, and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If Claude Code is installed locally and you pick the subscription option, setup runs `claude setup-token` for you and stores the token it produces.
+Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent, which mode, and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If you pick the subscription option, setup asks you to run `claude setup-token` in another terminal and paste the token it prints; it checks the token's shape before saving it. A credential that is already present can be kept or replaced.
 
 Everything setup writes can also be written by hand, as below.
 
@@ -167,7 +167,7 @@ key = "prefix+shift+u"
 command = "herdr plugin action invoke start-agent --plugin upstash.box"
 ```
 
-**Start claude**, **Start codex**, and **Start opencode** are Start on a named harness for one launch, meant for key bindings: `config.json` is not touched, the configured model is kept when that harness can use it and otherwise the harness default applies, and `agentArgs` and `providerApiKeyEnv` are dropped because they were written for the configured harness. Herdr cannot pass arguments to an action, which is why these are three verbs rather than one flag.
+**Start claude**, **Start codex**, and **Start opencode** are Start on a named harness for one launch, meant for key bindings: `config.json` is not touched, the configured model is kept when that harness can use it and otherwise the harness default applies, and `agentArgs` and `providerApiKeyEnv` are dropped because they were written for the configured harness. Herdr cannot pass arguments to an action, which is why these are three verbs rather than one flag. They are still one box per worktree: a second Start on a worktree that already has a live box is refused whichever verb you use. On reconnect, a `providerApiKeyEnv` written for the configured harness is ignored for a mapping on a different one.
 
 **Start** checks the worktree, refuses if a box already exists for it, then splits the focused pane, creates a box named after the worktree, uploads the filtered tree, records a Git baseline in the box, and opens the agent. **Reconnect** attaches again from any pane the mapping knows, resuming a paused box first and finishing any preparation a crash interrupted. **Apply changes** exports what changed in the box since the last apply as a binary Git patch, checks it against the worktree, shows the summary, and applies it after you say yes. **Stop** ends the agent session and keeps the box. **Delete** asks you to type `DELETE` in a popup, then removes the box and its mapping. **Info** shows the box status, agent session, paths, and export markers. In native mode the REPL opens in the box home; the worktree is in `worktree` there.
 
@@ -236,7 +236,7 @@ Native mode needs `@upstash/box` 0.7.5 or newer to cancel a typed run cleanly; o
 
 ## Troubleshooting
 
-**The upload is too large.** Start stops before creating a box and names the total, the file count, and the five largest eligible files. Add the heavy paths to `excludedPaths`. Raising `maxUploadBytes` past 100 MB does not help, because Box rejects larger uploads.
+**The upload is too large.** Start stops before creating a box and names the total, the file count, and the five largest eligible files. The total is measured before file contents are scanned, so a large file the secret filter would have dropped still counts. Add the heavy paths to `excludedPaths`. Raising `maxUploadBytes` past 100 MB does not help, because Box rejects larger uploads.
 
 **Native mode connects to the wrong API.** The `box` CLI reads a `.env` from the directory it runs in, which is your worktree. If that file sets `UPSTASH_BOX_BASE_URL`, the REPL will use it while the rest of the plugin uses its own. Unset it, or set the same value in the environment Herdr runs in.
 

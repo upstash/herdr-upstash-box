@@ -224,17 +224,16 @@ export function assertUploadFits(
   if (total <= maxUploadBytes) return;
   const largest = [...sized]
     .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path))
-    .slice(0, LARGEST_FILES_SHOWN)
-    .map((entry) => `  ${entry.path} (${formatBytes(entry.size)})`);
+    .slice(0, LARGEST_FILES_SHOWN);
   throw new PluginError(
     "upload_size_limit",
     [
       `The filtered upload is ${formatBytes(total)} across ${sized.length} files; the limit is ${formatBytes(maxUploadBytes)}.`,
       "Largest files:",
-      ...largest,
+      ...largest.map((entry) => `  ${entry.path} (${formatBytes(entry.size)})`),
       "Add directories or files to excludedPaths in config.json. Raising maxUploadBytes past 100 MB does not help: Box rejects larger uploads.",
     ].join("\n"),
-    { totalBytes: total, maxUploadBytes, largest: sized.slice(0, LARGEST_FILES_SHOWN) },
+    { totalBytes: total, maxUploadBytes, largest },
   );
 }
 

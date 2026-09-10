@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   boxApiKey,
   boxNameFor,
+  credentialConfigFor,
   deleteBoxForMapping,
   ensureRunning,
   findBoxForMapping,
@@ -54,6 +55,24 @@ describe("keys", () => {
     const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
     expect(providerApiKey(config, { env, secrets: {} })).toBeNull();
     expect(() => requireProviderApiKey(config, { env, secrets: {} })).toThrow(/needs MY_KEY/);
+  });
+
+  it("ignores a providerApiKeyEnv written for another harness on reconnect", () => {
+    const env = { CLAUDE_CODE_OAUTH_TOKEN: "t", OPENAI_API_KEY: "o" };
+    const setupShaped = { ...DEFAULT_CONFIG, providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN" };
+    const codexMapping = { harness: "codex" as const, model: "openai/gpt-5.6" };
+    expect(credentialConfigFor(setupShaped, codexMapping)).toEqual({
+      providerApiKeyEnv: null,
+      harness: "codex",
+      model: "openai/gpt-5.6",
+    });
+    expect(
+      providerApiKey(credentialConfigFor(setupShaped, codexMapping), { env, secrets: {} }),
+    ).toEqual({ name: "OPENAI_API_KEY", value: "o" });
+    const claudeMapping = { harness: "claude-code" as const, model: "anthropic/claude-sonnet-5" };
+    expect(credentialConfigFor(setupShaped, claudeMapping).providerApiKeyEnv).toBe(
+      "CLAUDE_CODE_OAUTH_TOKEN",
+    );
   });
 
   it("lets config name the variable and explains what each mode needs", () => {

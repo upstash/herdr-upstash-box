@@ -1,8 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { BoxError } from "@upstash/box";
 import type { BoxClient } from "../src/box.js";
-import { choose, modelFor, runSetupPane } from "../src/panes/setup.js";
+import {
+  choose,
+  defaultClaudeCredential,
+  isClaudeOAuthToken,
+  modelFor,
+  runSetupPane,
+} from "../src/panes/setup.js";
 import { remove, temporaryDirectory } from "./helpers.js";
 
 const directories: string[] = [];
@@ -26,14 +33,20 @@ function scripted(answers: Array<string | null>) {
   return { asked, prompt };
 }
 
-function keyClient(rejected: string[] = []): BoxClient & { checked: string[] } {
+const TOKEN = `sk-ant-oat01-${"a".repeat(40)}`;
+
+function keyClient(
+  rejected: string[] = [],
+  unreachable: string[] = [],
+): BoxClient & { checked: string[] } {
   const checked: string[] = [];
   const unused = () => Promise.reject(new Error("not used by setup"));
   return {
     checked,
     list: async (apiKey) => {
       checked.push(apiKey);
-      if (rejected.includes(apiKey)) throw new Error("401 unauthorized");
+      if (rejected.includes(apiKey)) throw new BoxError("unauthorized", 401);
+      if (unreachable.includes(apiKey)) throw new Error("fetch failed");
       return [];
     },
     get: unused,
@@ -53,7 +66,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const client = keyClient();
     const answers = scripted(["", "", "1"]);
-    const secrets = scripted(["box-key", "oauth-token"]);
+    const secrets = scripted(["box-key", TOKEN]);
     const outcome = await runSetupPane({
       env: {},
       directory,
@@ -61,7 +74,6 @@ describe("setup pane", () => {
       prompt: answers.prompt,
       promptSecret: secrets.prompt,
       client,
-      claudeOnPath: () => false,
     });
     expect(outcome).toBe("saved");
     expect(client.checked).toEqual(["box-key"]);
@@ -73,7 +85,7 @@ describe("setup pane", () => {
     });
     expect(readJson(path.join(directory, "secrets.json"))).toEqual({
       UPSTASH_BOX_API_KEY: "box-key",
-      CLAUDE_CODE_OAUTH_TOKEN: "oauth-token",
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
     });
     for (const name of ["config.json", "secrets.json"]) {
       expect(fs.statSync(path.join(directory, name)).mode & 0o777).toBe(0o600);
@@ -144,25 +156,86 @@ describe("setup pane", () => {
     expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
   });
 
-  it("runs claude setup-token when Claude Code is installed locally", async () => {
+  it("defaults a fresh TUI Claude setup to the subscription on Enter", async () => {
     const directory = configDir();
-    let ran = 0;
-    const answers = scripted(["", "", "1"]);
-    const secrets = scripted(["box-key", "oauth-token"]);
-    await runSetupPane({
+    const secrets = scripted(["box-key", TOKEN]);
+    const outcome = await runSetupPane({
       env: {},
       directory,
       write: quiet,
-      prompt: answers.prompt,
+      prompt: scripted(["", "", ""]).prompt,
       promptSecret: secrets.prompt,
       client: keyClient(),
-      claudeOnPath: () => true,
-      runSetupToken: () => {
-        ran += 1;
-        return 0;
-      },
     });
-    expect(ran).toBe(1);
+    expect(outcome).toBe("saved");
+    expect(readJson(path.join(directory, "config.json"))).toMatchObject({
+      providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+    });
+  });
+
+  it("defaults to a Console key only when one is present and no token is, and keeps it on Enter", async () => {
+    const directory = configDir();
+    const secrets = scripted([]);
+    const outcome = await runSetupPane({
+      env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "an" },
+      directory,
+      write: quiet,
+      prompt: scripted(["", "", "", ""]).prompt,
+      promptSecret: secrets.prompt,
+      client: keyClient(),
+    });
+    expect(outcome).toBe("saved");
+    expect(secrets.asked).toEqual([]);
+    expect(readJson(path.join(directory, "config.json"))).toMatchObject({
+      providerApiKeyEnv: "ANTHROPIC_API_KEY",
+    });
+    expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
+  });
+
+  it("replaces a present provider key when asked to", async () => {
+    const directory = configDir();
+    const outcome = await runSetupPane({
+      env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" },
+      directory,
+      write: quiet,
+      prompt: scripted(["", "", "2", "r"]).prompt,
+      promptSecret: scripted(["new-key"]).prompt,
+      client: keyClient(),
+    });
+    expect(outcome).toBe("saved");
+    expect(readJson(path.join(directory, "secrets.json"))).toEqual({
+      ANTHROPIC_API_KEY: "new-key",
+    });
+  });
+
+  it("refuses a pasted value that is not a setup-token token", async () => {
+    const directory = configDir();
+    const outcome = await runSetupPane({
+      env: {},
+      directory,
+      write: quiet,
+      prompt: scripted(["", "", "1"]).prompt,
+      promptSecret: scripted(["box-key", "sk-ant-api03-not-a-subscription-token"]).prompt,
+      client: keyClient(),
+    });
+    expect(outcome).toBe("aborted");
+    expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
+  });
+
+  it("stops without blaming the key when the API is unreachable", async () => {
+    const directory = configDir();
+    const client = keyClient([], ["k1"]);
+    const outcome = await runSetupPane({
+      env: {},
+      directory,
+      write: quiet,
+      prompt: scripted([]).prompt,
+      promptSecret: scripted(["k1", "k2", "k3"]).prompt,
+      client,
+    });
+    expect(outcome).toBe("aborted");
+    expect(client.checked).toEqual(["k1"]);
+    expect(fs.existsSync(path.join(directory, "config.json"))).toBe(false);
   });
 
   it("gives up after three rejected keys without writing anything", async () => {
@@ -213,5 +286,27 @@ describe("setup helpers", () => {
     expect(
       await choose(scripted([null]).prompt, quiet, "Pick", [{ value: "a", label: "A" }], "a"),
     ).toBeNull();
+  });
+
+  it("recognises the setup-token shape and picks the subscription default correctly", () => {
+    expect(isClaudeOAuthToken(TOKEN)).toBe(true);
+    expect(isClaudeOAuthToken("sk-ant-api03-console-key")).toBe(false);
+    const none = () => false;
+    const fresh = { providerApiKeyEnv: null, model: "anthropic/claude-sonnet-5" };
+    expect(defaultClaudeCredential(fresh, none)).toBe("oauth");
+    expect(defaultClaudeCredential(fresh, (name) => name === "ANTHROPIC_API_KEY")).toBe(
+      "anthropic",
+    );
+    expect(
+      defaultClaudeCredential(fresh, (name) =>
+        ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"].includes(name),
+      ),
+    ).toBe("oauth");
+    expect(
+      defaultClaudeCredential({ ...fresh, model: "openrouter/anthropic/claude-sonnet-5" }, none),
+    ).toBe("openrouter");
+    expect(
+      defaultClaudeCredential({ ...fresh, providerApiKeyEnv: "ANTHROPIC_API_KEY" }, none),
+    ).toBe("anthropic");
   });
 });

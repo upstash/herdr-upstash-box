@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import type { PluginError } from "../src/result.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import {
   buildUploadManifest,
@@ -134,6 +135,19 @@ describe("buildUploadManifest", () => {
     expect(message).toMatch(/c\.bin/);
     expect(message).not.toMatch(/b\.bin/);
     expect(message).toMatch(/excludedPaths/);
+    let details: Record<string, unknown> | undefined;
+    try {
+      assertUploadFits(sized, 5000);
+    } catch (error) {
+      details = (error as PluginError).details;
+    }
+    expect((details?.largest as Array<{ path: string }>).map((entry) => entry.path)).toEqual([
+      "g.bin",
+      "f.bin",
+      "e.bin",
+      "d.bin",
+      "c.bin",
+    ]);
   });
 
   it("scans whole text files for secrets", () => {

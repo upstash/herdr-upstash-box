@@ -79,6 +79,8 @@ export async function askHidden(
     };
     const timer = setTimeout(() => finish(null), timeoutMs);
     const onData = (chunk: string) => {
+      // An escape sequence (arrow keys, function keys) arrives as one chunk and is not input.
+      if (chunk.startsWith("\u001b")) return;
       for (const character of chunk) {
         if (character === "\u0003") return finish(null);
         if (character === "\r" || character === "\n") return finish(buffer);
