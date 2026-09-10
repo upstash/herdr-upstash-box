@@ -20,8 +20,9 @@ import {
   stop,
 } from "../src/actions.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
+import { PluginError } from "../src/result.js";
 import type { PaneOptions } from "../src/herdr.js";
-import { updateState } from "../src/state.js";
+import { readState, updateState } from "../src/state.js";
 import { makeGitRepository, remove, sampleMapping, temporaryDirectory } from "./helpers.js";
 
 interface Opened {
@@ -194,6 +195,38 @@ describe("reconnect", () => {
       HERDR_BOX_MAPPING_ID: sampleMapping().id,
       HERDR_AGENT: "claude",
     });
+  });
+
+  it("falls back to the focused pane when the remembered source pane is gone, and remembers it", async () => {
+    const state = await stateWith(sampleMapping({ sourcePaneId: "w9:p1" }));
+    const targets: Array<string | null | undefined> = [];
+    const openPane = (_entrypoint: string, _context: unknown, options: PaneOptions = {}) => {
+      targets.push(options.targetPaneId);
+      if (options.targetPaneId === "w9:p1") {
+        throw new PluginError("herdr_pane_not_found", "Herdr no longer has pane w9:p1.");
+      }
+      return { status: 0, stdout: "", stderr: "" };
+    };
+    const result = await reconnect(
+      { focused_pane_id: "wA:p1", focused_pane_cwd: "/repo" },
+      { openPane, state, env: {}, write: quiet },
+    );
+    expect(result.status).toBe("opened");
+    expect(targets).toEqual(["w9:p1", "wA:p1"]);
+    expect(readState(state).mappings[sampleMapping().id]?.sourcePaneId).toBe("wA:p1");
+  });
+
+  it("does not retry when the focused pane itself is gone or is the source pane", async () => {
+    const state = await stateWith(sampleMapping({ sourcePaneId: "w9:p1" }));
+    const openPane = () => {
+      throw new PluginError("herdr_pane_not_found", "gone");
+    };
+    await expect(
+      reconnect({ focused_pane_id: "w9:p1" }, { openPane, state, env: {}, write: quiet }),
+    ).rejects.toMatchObject({ code: "herdr_pane_not_found" });
+    await expect(
+      reconnect({ focused_pane_cwd: "/repo" }, { openPane, state, env: {}, write: quiet }),
+    ).rejects.toMatchObject({ code: "herdr_pane_not_found" });
   });
 
   it("opens the native pane for a native mapping", async () => {

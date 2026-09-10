@@ -65,6 +65,13 @@ export const openPluginPane: OpenPane = (entrypoint, context, options = {}) => {
       "Another popup is already open. Close it, then run this again.",
     );
   }
+  // A remembered pane id outlives the Herdr session it came from; callers can retry elsewhere.
+  if (detail.includes("pane_not_found")) {
+    throw new PluginError(
+      "herdr_pane_not_found",
+      `Herdr no longer has pane ${options.targetPaneId ?? context.focused_pane_id ?? "?"}.`,
+    );
+  }
   throw new PluginError(
     "herdr_pane_failed",
     `Herdr could not open the ${entrypoint} pane: ${detail || `exit ${result.status}`}`.slice(
