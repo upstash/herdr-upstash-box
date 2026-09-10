@@ -3,7 +3,7 @@ import path from "node:path";
 import { Box, BoxError, type BoxConfig, type BoxData } from "@upstash/box";
 import { loadSecrets, resolveSecret, type PluginConfig, type Secrets } from "./config.js";
 import { BOX_API_KEY_ENV, BOX_LABEL, MAX_BOX_NAME_LENGTH } from "./constants.js";
-import { providerKeyEnv } from "./harness.js";
+import { credentialCandidates, getHarness, type ProviderKey } from "./harness.js";
 import { PluginError } from "./result.js";
 import type { Mapping } from "./state.js";
 
@@ -43,26 +43,47 @@ export function boxApiKey(options: KeyOptions = {}): string {
   return key;
 }
 
-export interface ProviderKey {
-  name: string;
-  value: string;
+export type { ProviderKey } from "./harness.js";
+
+export type CredentialConfig = Pick<PluginConfig, "providerApiKeyEnv" | "model" | "harness">;
+
+// An explicit providerApiKeyEnv is the only variable consulted; nothing else is ever substituted.
+export function providerKeyCandidates(config: CredentialConfig): string[] {
+  if (config.providerApiKeyEnv) return [config.providerApiKeyEnv];
+  return credentialCandidates(getHarness(config.harness), config.model);
 }
 
-export function providerKeyName(config: Pick<PluginConfig, "providerApiKeyEnv" | "model">): string {
-  return config.providerApiKeyEnv ?? providerKeyEnv(config.model);
+// providerApiKeyEnv is written for the configured harness. A mapping started on another harness
+// through start-codex or start-opencode must not read a variable named for Claude Code.
+export function credentialConfigFor(
+  config: Pick<PluginConfig, "providerApiKeyEnv" | "harness">,
+  mapping: Pick<Mapping, "harness" | "model">,
+): CredentialConfig {
+  return {
+    providerApiKeyEnv: config.harness === mapping.harness ? config.providerApiKeyEnv : null,
+    harness: mapping.harness,
+    model: mapping.model,
+  };
+}
+
+export function providerKeyName(config: CredentialConfig): string {
+  return providerKeyCandidates(config).join(" or ");
 }
 
 export function providerApiKey(
-  config: Pick<PluginConfig, "providerApiKeyEnv" | "model">,
+  config: CredentialConfig,
   options: KeyOptions = {},
 ): ProviderKey | null {
-  const name = providerKeyName(config);
-  const value = resolveSecret(name, { env: options.env, secrets: secretsFor(options) });
-  return value ? { name, value } : null;
+  const secrets = secretsFor(options);
+  for (const name of providerKeyCandidates(config)) {
+    const value = resolveSecret(name, { env: options.env, secrets });
+    if (value) return { name, value };
+  }
+  return null;
 }
 
 export function requireProviderApiKey(
-  config: Pick<PluginConfig, "providerApiKeyEnv" | "model" | "mode">,
+  config: CredentialConfig & Pick<PluginConfig, "mode">,
   options: KeyOptions = {},
 ): ProviderKey {
   const key = providerApiKey(config, options);

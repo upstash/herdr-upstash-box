@@ -50,6 +50,66 @@ export async function waitForDismiss(
   await askWithTimeout(message, timeoutMs).catch(() => null);
 }
 
+// Bracketed paste wraps the text in ESC[200~ and ESC[201~, and arrow keys arrive as CSI sequences;
+// both are stripped so what remains is only what was typed or pasted.
+export function hiddenInputText(chunk: string): string {
+  return chunk
+    .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+    .replace(/\u001bO[@-~]/g, "")
+    .replace(/\u001b[@-Z\\-_]/g, "");
+}
+
+// Reads a secret without echoing it, so a key never lands in the pane scrollback.
+export async function askHidden(
+  question: string,
+  timeoutMs = DISMISS_TIMEOUT_MS,
+): Promise<string | null> {
+  if (!isInteractive()) {
+    throw new PluginError(
+      "interactive_terminal_required",
+      "This operation needs an interactive Herdr terminal.",
+    );
+  }
+  const stdin = process.stdin;
+  const wasRaw = stdin.isRaw ?? false;
+  const restore = () => {
+    stdin.setRawMode(wasRaw);
+    stdin.pause();
+  };
+  process.stdout.write(question);
+  try {
+    stdin.setRawMode(true);
+    stdin.setEncoding("utf8");
+    stdin.resume();
+  } catch (error) {
+    restore();
+    throw error;
+  }
+  return new Promise((resolve) => {
+    let buffer = "";
+    const finish = (value: string | null) => {
+      clearTimeout(timer);
+      stdin.off("data", onData);
+      restore();
+      process.stdout.write("\n");
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const onData = (chunk: string) => {
+      for (const character of hiddenInputText(chunk)) {
+        if (character === "\u0003") return finish(null);
+        if (character === "\r" || character === "\n") return finish(buffer);
+        if (character === "\u007f" || character === "\b") {
+          buffer = buffer.slice(0, -1);
+        } else if (character >= " ") {
+          buffer += character;
+        }
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 export async function askWithTimeout(question: string, timeoutMs: number): Promise<string | null> {
   if (!isInteractive()) {
     throw new PluginError(

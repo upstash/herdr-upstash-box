@@ -3,6 +3,7 @@ import type { Agent, Box, BoxConfig, Snapshot } from "@upstash/box";
 import {
   boxApiKey,
   boxNameFor,
+  credentialConfigFor,
   labelsFor,
   requireProviderApiKey,
   sdkClient,
@@ -25,7 +26,7 @@ export function snapshotRecord(snapshot: Pick<Snapshot, "id" | "name">, at = now
 // The credential mode comes from the original mapping, never from whatever the config says today.
 export function forkCreateConfig(
   original: Mapping,
-  config: Pick<PluginConfig, "providerApiKeyEnv">,
+  config: Pick<PluginConfig, "providerApiKeyEnv" | "harness">,
   apiKey: string,
   mappingId: string,
   boxName: string,
@@ -35,10 +36,7 @@ export function forkCreateConfig(
   if (original.mode !== "native") return base;
   const key =
     original.credential === "local"
-      ? requireProviderApiKey(
-          { providerApiKeyEnv: config.providerApiKeyEnv, model: original.model, mode: "native" },
-          keys,
-        )
+      ? requireProviderApiKey({ ...credentialConfigFor(config, original), mode: "native" }, keys)
       : null;
   return {
     ...base,

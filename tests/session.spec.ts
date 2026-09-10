@@ -70,7 +70,7 @@ describe("attach", () => {
   const options = {
     harnessId: "claude-code",
     model: MODEL,
-    apiKey: "secret",
+    credential: { name: "ANTHROPIC_API_KEY", value: "secret" },
     cwd: "/workspace/home",
     mappingId: MAPPING_ID,
     rows: 40,
@@ -191,7 +191,7 @@ describe("Claude Code first run", () => {
     await attach(claude.box, {
       harnessId: "claude-code",
       model: MODEL,
-      apiKey: "secret",
+      credential: { name: "ANTHROPIC_API_KEY", value: "secret" },
       cwd: "/workspace/home/worktree",
       mappingId: MAPPING_ID,
       resume: false,
@@ -214,7 +214,7 @@ describe("Claude Code first run", () => {
     await attach(codex.box, {
       harnessId: "codex",
       model: "openai/gpt-5",
-      apiKey: "secret",
+      credential: { name: "ANTHROPIC_API_KEY", value: "secret" },
       cwd: "/workspace/home/worktree",
       mappingId: MAPPING_ID,
       resume: false,

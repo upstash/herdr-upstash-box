@@ -1,6 +1,6 @@
 import type { Box, ExecSessionHandle } from "@upstash/box";
 import { Agent } from "@upstash/box";
-import { getHarness, launchEnv, modelArg, type Harness } from "./harness.js";
+import { getHarness, launchEnv, modelArg, type Harness, type ProviderKey } from "./harness.js";
 import { PluginError } from "./result.js";
 
 export function shellQuote(value: string): string {
@@ -140,7 +140,7 @@ export async function seedClaudeOnboarding(box: Box, cwd: string): Promise<void>
 export interface AttachOptions {
   harnessId: string;
   model: string;
-  apiKey: string;
+  credential: ProviderKey;
   cwd: string;
   mappingId: string;
   resume: boolean;
@@ -159,7 +159,7 @@ export interface Attached {
 
 export async function attach(box: Box, options: AttachOptions): Promise<Attached> {
   const harness = getHarness(options.harnessId);
-  const credentials = launchEnv(harness, options.model, options.apiKey);
+  const credentials = launchEnv(harness, options.model, options.credential);
   await ensureTmux(box);
   if (harness.id === Agent.ClaudeCode) await seedClaudeOnboarding(box, options.cwd);
   const exists = await hasTmuxSession(box, options.mappingId);

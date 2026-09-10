@@ -11,7 +11,13 @@ import {
   type NativeKey,
   type PreviewAuth,
 } from "./constants.js";
-import { assertHarnessSupportsModel, getHarness } from "./harness.js";
+import {
+  assertHarnessSupportsModel,
+  DEFAULT_MODELS,
+  getHarness,
+  providerFor,
+  SUPPORTED_PROVIDERS,
+} from "./harness.js";
 import { PluginError } from "./result.js";
 
 export const RUNTIMES = [
@@ -219,6 +225,21 @@ export function validateConfig(candidate: unknown): PluginConfig {
     invalid("providerApiKeyEnv must be an environment variable name.");
   }
   return config;
+}
+
+// A one-off harness keeps the configured model only if that harness can use it, and drops
+// agentArgs, which were written for the configured harness.
+export function overrideHarness(config: PluginConfig, harnessId: HarnessId): PluginConfig {
+  if (harnessId === config.harness) return config;
+  getHarness(harnessId);
+  const keepsModel = SUPPORTED_PROVIDERS[harnessId].includes(providerFor(config.model));
+  return {
+    ...config,
+    harness: harnessId,
+    model: keepsModel ? config.model : DEFAULT_MODELS[harnessId],
+    agentArgs: [],
+    providerApiKeyEnv: null,
+  };
 }
 
 export function configDirectory(env: NodeJS.ProcessEnv = process.env): string {

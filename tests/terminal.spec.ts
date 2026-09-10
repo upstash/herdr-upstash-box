@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { hiddenInputText } from "../src/pane-runtime.js";
 import { bridgeTerminal, terminalSize } from "../src/terminal.js";
 
 function fakeStdin() {
@@ -85,5 +86,16 @@ describe("terminalSize", () => {
       rows: 50,
       cols: 200,
     });
+  });
+});
+
+describe("hiddenInputText", () => {
+  it("keeps a bracketed paste and drops the markers and cursor keys", () => {
+    const token = `sk-ant-oat01-${"a".repeat(40)}`;
+    expect(hiddenInputText(`\u001b[200~${token}\u001b[201~`)).toBe(token);
+    expect(hiddenInputText("\u001b[A")).toBe("");
+    expect(hiddenInputText("\u001bOA")).toBe("");
+    expect(hiddenInputText(`ab\u001b[Dc`)).toBe("abc");
+    expect(hiddenInputText("plain\r")).toBe("plain\r");
   });
 });

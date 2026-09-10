@@ -83,6 +83,34 @@ const fakeAttach = async (_box: unknown, _options: AttachOptions): Promise<Attac
 const live = async () => ({ status: "running" as const, resumed: false });
 
 describe("runAgentPane", () => {
+  it("never reads a Claude credential name from config into a Codex reconnect", async () => {
+    const state = await stateWith(
+      sampleMapping({ harness: "codex", model: "openai/gpt-5.6", everAttached: true }),
+    );
+    const { box } = fakeBox();
+    let attachOptions: AttachOptions | undefined;
+    const code = await runAgentPane(MAPPING_ID, {
+      env: {
+        ...tuiEnv,
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-token",
+        OPENAI_API_KEY: "openai-secret",
+      },
+      state,
+      // What setup writes after choosing the subscription, before a start-codex launch.
+      config: { ...DEFAULT_CONFIG, providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN" },
+      client: fakeClient({ "box-1": box }),
+      attach: async (target, options) => {
+        attachOptions = options;
+        return fakeAttach(target, options);
+      },
+      bridge: async () => 0,
+      write: quiet,
+      ensureRunning: live,
+    });
+    expect(code).toBe(0);
+    expect(attachOptions?.credential).toEqual({ name: "OPENAI_API_KEY", value: "openai-secret" });
+  });
+
   it("resumes the box, attaches with the mapping's history, and records the outcome", async () => {
     const state = await stateWith(sampleMapping({ everAttached: true }));
     const { box, calls } = fakeBox({ statuses: ["paused", "running"] });
@@ -117,7 +145,7 @@ describe("runAgentPane", () => {
     expect(attachOptions).toMatchObject({
       harnessId: "claude-code",
       model: "anthropic/claude-sonnet-5",
-      apiKey: "provider-secret",
+      credential: { name: "ANTHROPIC_API_KEY", value: "provider-secret" },
       cwd: "/workspace/home",
       resume: true,
       rows: 50,

@@ -1,10 +1,12 @@
-import { loadConfig, type PluginConfig } from "./config.js";
+import { loadConfig, overrideHarness, type PluginConfig } from "./config.js";
 import {
   AUTOMATION_MODE_ENV,
   DESTRUCTIVE_ACTION_ENV,
+  HARNESS_OVERRIDE_ENV,
   MAPPING_ID_ENV,
   OPERATION_ENV,
   SOURCE_CONTEXT_ENV,
+  type HarnessId,
 } from "./constants.js";
 import { assertNativeAutomationMapping } from "./automation.js";
 import { parsePluginContext, resolveGitContext, type PluginContext } from "./context.js";
@@ -89,17 +91,23 @@ function openConfirmation(
 export async function startAgent(
   context: PluginContext,
   deps: ActionDeps = {},
+  launch: { actionId?: string; harness?: HarnessId } = {},
 ): Promise<ActionResult> {
-  const config = deps.config ?? loadConfig({ env: deps.env });
+  const configured = deps.config ?? loadConfig({ env: deps.env });
+  const config = launch.harness ? overrideHarness(configured, launch.harness) : configured;
   const gitContext = resolveGitContext(context, { env: deps.env });
   assertNoActiveMapping(readState(deps.state), gitContext.root, config);
   (deps.openPane ?? openPluginPane)("start", context, {
     placement: "split",
     targetPaneId: context.focused_pane_id,
-    env: { ...contextEnvironment(context), ...agentEnvironment(config) },
+    env: {
+      ...contextEnvironment(context),
+      ...agentEnvironment(config),
+      ...(launch.harness ? { [HARNESS_OVERRIDE_ENV]: launch.harness } : {}),
+    },
   });
   return emitResult(
-    "start-agent",
+    launch.actionId ?? "start-agent",
     "opened",
     {
       pane: "start",
@@ -110,6 +118,16 @@ export async function startAgent(
     },
     deps.write,
   );
+}
+
+// One launch on a named harness, for key bindings; config.json is not touched.
+function startWith(actionId: string, harness: HarnessId): Action {
+  return (context, deps = {}) => startAgent(context, deps, { actionId, harness });
+}
+
+export async function setup(context: PluginContext, deps: ActionDeps = {}): Promise<ActionResult> {
+  (deps.openPane ?? openPluginPane)("setup", context, { placement: "popup" });
+  return emitResult("setup", "opened", { pane: "setup" }, deps.write);
 }
 
 export async function reconnect(
@@ -193,7 +211,11 @@ export async function schedules(
 export type Action = (context: PluginContext, deps?: ActionDeps) => Promise<ActionResult>;
 
 export const ACTIONS: Readonly<Record<string, Action>> = Object.freeze({
+  setup,
   "start-agent": startAgent,
+  "start-claude": startWith("start-claude", "claude-code"),
+  "start-codex": startWith("start-codex", "codex"),
+  "start-opencode": startWith("start-opencode", "opencode"),
   reconnect,
   stop,
   info,

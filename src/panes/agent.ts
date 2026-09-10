@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import type { Box } from "@upstash/box";
-import { ensureRunning, openBox, requireProviderApiKey, type BoxClient } from "../box.js";
+import {
+  credentialConfigFor,
+  ensureRunning,
+  openBox,
+  requireProviderApiKey,
+  type BoxClient,
+} from "../box.js";
 import { loadConfig, type PluginConfig } from "../config.js";
 import type { LifecycleState } from "../constants.js";
 import { requireMappingById, stdoutWriter } from "../pane-runtime.js";
@@ -105,7 +111,7 @@ export async function runAgentPane(mappingId: string, deps: AgentPaneDeps = {}):
   }
   const config = deps.config ?? loadConfig({ env });
   const key = requireProviderApiKey(
-    { providerApiKeyEnv: config.providerApiKeyEnv, mode: "tui", model: initial.model },
+    { ...credentialConfigFor(config, initial), mode: "tui" },
     { env },
   );
   const connection = await claimConnection(mappingId, {
@@ -135,7 +141,7 @@ export async function runAgentPane(mappingId: string, deps: AgentPaneDeps = {}):
     attached = await (deps.attach ?? attachSession)(box, {
       harnessId: mapping.harness,
       model: mapping.model,
-      apiKey: key.value,
+      credential: key,
       cwd: remoteWorkingDirectory(mapping),
       mappingId,
       resume: mapping.everAttached,

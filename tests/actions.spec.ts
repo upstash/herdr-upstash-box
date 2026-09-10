@@ -14,6 +14,7 @@ import {
   runTask,
   runAction,
   schedules,
+  setup,
   snapshot,
   startAgent,
   stop,
@@ -62,6 +63,43 @@ function repo(): string {
 }
 
 const quiet = () => undefined;
+
+describe("per-harness start", () => {
+  it("launches on the named harness for one start and tells the pane so", async () => {
+    const root = repo();
+    const { opened, openPane } = recorder();
+    const result = await ACTIONS["start-codex"]!(
+      { focused_pane_cwd: root },
+      { openPane, config: DEFAULT_CONFIG, state: await stateWith(), env: {}, write: quiet },
+    );
+    expect(result.action).toBe("start-codex");
+    expect(result.harness).toBe("codex");
+    expect(result.model).toBe("openai/gpt-5.6");
+    expect(opened[0]?.options.env?.HERDR_BOX_HARNESS).toBe("codex");
+    expect(opened[0]?.options.env?.HERDR_AGENT).toBe("codex");
+  });
+
+  it("does not mark a start on the configured harness as an override", async () => {
+    const root = repo();
+    const { opened, openPane } = recorder();
+    await ACTIONS["start-claude"]!(
+      { focused_pane_cwd: root },
+      { openPane, config: DEFAULT_CONFIG, state: await stateWith(), env: {}, write: quiet },
+    );
+    expect(opened[0]?.options.env?.HERDR_BOX_HARNESS).toBe("claude-code");
+    expect(opened[0]?.options.env?.HERDR_AGENT).toBe("claude");
+  });
+});
+
+describe("setup", () => {
+  it("opens the setup popup and needs no worktree", async () => {
+    const { opened, openPane } = recorder();
+    const result = await setup({}, { openPane, write: quiet });
+    expect(result.status).toBe("opened");
+    expect(opened[0]?.entrypoint).toBe("setup");
+    expect(opened[0]?.options.placement).toBe("popup");
+  });
+});
 
 describe("start-agent", () => {
   it("opens the start pane beside the focused pane with the source context", async () => {
@@ -230,8 +268,12 @@ describe("runAction", () => {
         "run-results",
         "run-task",
         "schedules",
+        "setup",
         "snapshot",
         "start-agent",
+        "start-claude",
+        "start-codex",
+        "start-opencode",
         "stop",
       ].sort(),
     );
