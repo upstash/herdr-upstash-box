@@ -65,7 +65,7 @@ describe("setup pane", () => {
   it("validates the Box key, then writes config and secrets at 600 for a subscription token", async () => {
     const directory = configDir();
     const client = keyClient();
-    const answers = scripted(["", "", "1"]);
+    const answers = scripted(["", "1"]);
     const secrets = scripted(["box-key", TOKEN]);
     const outcome = await runSetupPane({
       env: {},
@@ -78,7 +78,6 @@ describe("setup pane", () => {
     expect(outcome).toBe("saved");
     expect(client.checked).toEqual(["box-key"]);
     expect(readJson(path.join(directory, "config.json"))).toMatchObject({
-      mode: "tui",
       harness: "claude-code",
       model: "anthropic/claude-sonnet-5",
       providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN",
@@ -95,7 +94,7 @@ describe("setup pane", () => {
   it("asks again after a rejected key and records only the one that worked", async () => {
     const directory = configDir();
     const client = keyClient(["bad-key"]);
-    const answers = scripted(["", "", "2"]);
+    const answers = scripted(["", "2"]);
     const secrets = scripted(["bad-key", "good-key", "anthropic-key"]);
     const outcome = await runSetupPane({
       env: {},
@@ -113,16 +112,16 @@ describe("setup pane", () => {
     });
   });
 
-  it("keeps keys found in the environment out of secrets.json and skips the credential in native mode", async () => {
+  it("keeps keys found in the environment out of secrets.json", async () => {
     const directory = configDir();
     const client = keyClient();
-    const answers = scripted(["2", "2"]);
     const secrets = scripted([]);
     const outcome = await runSetupPane({
-      env: { UPSTASH_BOX_API_KEY: "from-env" },
+      env: { UPSTASH_BOX_API_KEY: "from-env", OPENAI_API_KEY: "from-env-too" },
       directory,
       write: quiet,
-      prompt: answers.prompt,
+      // Codex, then Enter to keep the OpenAI key found in the environment.
+      prompt: scripted(["2", ""]).prompt,
       promptSecret: secrets.prompt,
       client,
     });
@@ -130,12 +129,41 @@ describe("setup pane", () => {
     expect(client.checked).toEqual(["from-env"]);
     expect(secrets.asked).toEqual([]);
     expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
-    expect(readJson(path.join(directory, "config.json"))).toMatchObject({
-      mode: "native",
+    expect(readJson(path.join(directory, "config.json"))).toEqual({
       harness: "codex",
       model: "openai/gpt-5.6",
-      providerApiKeyEnv: null,
+      providerApiKeyEnv: "OPENAI_API_KEY",
+      agentArgs: [],
     });
+  });
+
+  it("drops keys config.json no longer accepts and keeps the rest", async () => {
+    const directory = configDir();
+    fs.writeFileSync(
+      path.join(directory, "config.json"),
+      JSON.stringify({
+        mode: "native",
+        nativeKey: "local",
+        boxBin: "/opt/box",
+        excludedPaths: ["img/"],
+      }),
+    );
+    const output: string[] = [];
+    const outcome = await runSetupPane({
+      env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "an" },
+      directory,
+      write: (chunk) => void output.push(chunk),
+      prompt: scripted(["", "", ""]).prompt,
+      promptSecret: scripted([]).prompt,
+      client: keyClient(),
+    });
+    expect(outcome).toBe("saved");
+    const written = readJson(path.join(directory, "config.json"));
+    expect(written).not.toHaveProperty("mode");
+    expect(written).not.toHaveProperty("nativeKey");
+    expect(written).not.toHaveProperty("boxBin");
+    expect(written.excludedPaths).toEqual(["img/"]);
+    expect(output.join("")).toMatch(/removed keys no longer supported: mode, nativeKey, boxBin/);
   });
 
   it("writes nothing when a prompt times out", async () => {
@@ -163,7 +191,7 @@ describe("setup pane", () => {
       env: {},
       directory,
       write: quiet,
-      prompt: scripted(["", "", ""]).prompt,
+      prompt: scripted(["", ""]).prompt,
       promptSecret: secrets.prompt,
       client: keyClient(),
     });
@@ -180,7 +208,7 @@ describe("setup pane", () => {
       env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "an" },
       directory,
       write: quiet,
-      prompt: scripted(["", "", "", ""]).prompt,
+      prompt: scripted(["", "", ""]).prompt,
       promptSecret: secrets.prompt,
       client: keyClient(),
     });
@@ -203,7 +231,7 @@ describe("setup pane", () => {
       env: {},
       directory,
       write: quiet,
-      prompt: scripted(["", "", "2", "r"]).prompt,
+      prompt: scripted(["", "2", "r"]).prompt,
       promptSecret: scripted(["new-key"]).prompt,
       client: keyClient(),
     });
@@ -221,7 +249,7 @@ describe("setup pane", () => {
       env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" },
       directory,
       write: quiet,
-      prompt: scripted(["", "", "2", "r"]).prompt,
+      prompt: scripted(["", "2", "r"]).prompt,
       promptSecret: secrets.prompt,
       client: keyClient(),
     });
@@ -237,7 +265,7 @@ describe("setup pane", () => {
       env: {},
       directory,
       write: quiet,
-      prompt: scripted(["", "", "1"]).prompt,
+      prompt: scripted(["", "1"]).prompt,
       promptSecret: scripted(["box-key", "sk-ant-api03-not-a-subscription-token"]).prompt,
       client: keyClient(),
     });

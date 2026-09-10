@@ -1,9 +1,7 @@
 import type { BoxData } from "@upstash/box";
-import { emptyAutomation, readAutomation, type AutomationOptions } from "../automation.js";
 import { boxApiKey, sdkClient, type BoxClient } from "../box.js";
 import {
   BOX_LABEL,
-  AUTOMATION_MODE_ENV,
   DESTRUCTIVE_ACTION_ENV,
   MAPPING_ID_ENV,
   OPERATION_ENV,
@@ -26,7 +24,6 @@ import { readState, type StateOptions } from "../state.js";
 export interface DashboardDeps {
   env?: NodeJS.ProcessEnv;
   state?: StateOptions;
-  automation?: AutomationOptions;
   client?: BoxClient;
   apiKey?: string;
   context?: PluginContext;
@@ -68,24 +65,8 @@ export async function runDashboardPane(deps: DashboardDeps = {}): Promise<void> 
   let message = "Loading boxes...";
   let selectedId: string | null = null;
   let running = true;
-  let historyWarning: string | null = null;
 
-  // The board must stay usable when the history file is half-written: it is the way to recover.
-  const automation = () => {
-    try {
-      const loaded = readAutomation({
-        ...deps.state,
-        ...deps.automation,
-        env: deps.automation?.env ?? deps.state?.env ?? env,
-      });
-      historyWarning = null;
-      return loaded;
-    } catch (error) {
-      historyWarning = `Run history unreadable, schedules hidden: ${errorMessage(error)}`;
-      return emptyAutomation();
-    }
-  };
-  const rows = (): DashboardRow[] => buildRows(readState(deps.state), listing, automation());
+  const rows = (): DashboardRow[] => buildRows(readState(deps.state), listing);
   const selectedIndex = (current: DashboardRow[]): number => {
     const index = current.findIndex((row) => row.id === selectedId);
     return index < 0 ? 0 : index;
@@ -98,7 +79,7 @@ export async function runDashboardPane(deps: DashboardDeps = {}): Promise<void> 
       `\u001b[2J\u001b[H${renderDashboard(current, index, {
         width,
         syncing,
-        message: historyWarning ? `${historyWarning}. ${message}` : message,
+        message,
         now: now(),
       })}`,
     );
@@ -137,15 +118,12 @@ export async function runDashboardPane(deps: DashboardDeps = {}): Promise<void> 
         message = `${mapping.boxName} is ${mapping.lifecycleState}; nothing to reconnect to.`;
         return;
       }
-      const pane = mapping.mode === "tui" ? "agent" : "native";
-      open(pane, context, {
+      open("agent", context, {
         placement: "tab",
         workspaceId: context.workspace_id,
         env: {
           [MAPPING_ID_ENV]: mapping.id,
-          ...(mapping.mode === "tui"
-            ? { HERDR_AGENT: getHarness(mapping.harness).detectionKind }
-            : {}),
+          HERDR_AGENT: getHarness(mapping.harness).detectionKind,
         },
       });
       message = `Opened ${mapping.boxName} in a new tab.`;
@@ -162,24 +140,6 @@ export async function runDashboardPane(deps: DashboardDeps = {}): Promise<void> 
     if (action === "previews") {
       open("previews", context, { placement: "popup", env: { [MAPPING_ID_ENV]: mapping.id } });
       message = `Previews for ${mapping.boxName} opened in a popup.`;
-      return;
-    }
-    if (action === "run-task" || action === "run-results" || action === "schedules") {
-      if (mapping.mode !== "native") {
-        message = "Server-side runs and schedules require a native-mode box.";
-        return;
-      }
-      const pane = action === "schedules" ? "schedules" : "agent-runs";
-      open(pane, context, {
-        placement: "popup",
-        env: {
-          [MAPPING_ID_ENV]: mapping.id,
-          ...(pane === "agent-runs"
-            ? { [AUTOMATION_MODE_ENV]: action === "run-task" ? "task" : "results" }
-            : {}),
-        },
-      });
-      message = `${action} for ${mapping.boxName} opened in a popup.`;
       return;
     }
     if (action === "delete" || action === "fork") {

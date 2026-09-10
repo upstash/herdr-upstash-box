@@ -2,16 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
-  CREDENTIALS,
   HARNESS_IDS,
   LIFECYCLE_STATES,
   MAPPING_ID_ENV,
-  MODES,
   STATE_SCHEMA_VERSION,
-  type Credential,
   type HarnessId,
   type LifecycleState,
-  type Mode,
 } from "./constants.js";
 import type { PluginContext } from "./context.js";
 import { PluginError } from "./result.js";
@@ -19,10 +15,8 @@ import { PluginError } from "./result.js";
 export interface Mapping {
   schemaVersion: typeof STATE_SCHEMA_VERSION;
   id: string;
-  mode: Mode;
   harness: HarnessId;
   model: string;
-  credential: Credential;
   sourcePaneId: string | null;
   remotePaneId: string | null;
   connectionId: string | null;
@@ -102,10 +96,8 @@ export function validateMapping(id: string, candidate: unknown): Mapping {
   if (
     m.schemaVersion !== STATE_SCHEMA_VERSION ||
     m.id !== id ||
-    !includes(MODES, m.mode) ||
     !includes(HARNESS_IDS, m.harness) ||
     !nonEmptyString(m.model) ||
-    !includes(CREDENTIALS, m.credential) ||
     !nullableString(m.sourcePaneId) ||
     !nullableString(m.remotePaneId) ||
     !nullableString(m.connectionId) ||

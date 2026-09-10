@@ -1,5 +1,4 @@
 import { BoxError } from "@upstash/box";
-import { removeAutomationForMapping, type AutomationOptions } from "../automation.js";
 import {
   boxApiKey,
   deleteBoxForMapping,
@@ -38,7 +37,6 @@ export type DestructiveAction = keyof typeof CONFIRMATION_WORDS;
 export interface ConfirmationPaneDeps {
   env?: NodeJS.ProcessEnv;
   state?: StateOptions;
-  automation?: AutomationOptions;
   config?: PluginConfig;
   client?: BoxClient;
   write?: Writer;
@@ -69,7 +67,7 @@ async function deleteMapping(mappingId: string, deps: ConfirmationPaneDeps): Pro
       "",
       `Box: ${mapping.boxName}`,
       `Box id: ${mapping.boxId ?? "not provisioned"}`,
-      `Agent: ${getHarness(mapping.harness).title} (${mapping.mode})`,
+      `Agent: ${getHarness(mapping.harness).title}`,
       `Local worktree: ${mapping.localRoot}`,
       "",
       "This permanently deletes the box, its files, and the local mapping.",
@@ -90,13 +88,6 @@ async function deleteMapping(mappingId: string, deps: ConfirmationPaneDeps): Pro
     );
     await deleteBoxForMapping(current, { client: deps.client, env: deps.env });
     await removeMapping(mappingId, deps.state);
-    await removeAutomationForMapping(mappingId, {
-      directory: deps.automation?.directory ?? deps.state?.directory,
-      file: deps.automation?.file,
-      env: deps.automation?.env ?? deps.state?.env ?? deps.env,
-    }).catch((error) => {
-      write(`\nWarning: could not remove local automation history: ${errorMessage(error)}\n`);
-    });
     closeRemotePane(current, deps);
     write(`\nDeleted ${current.boxName}.\n`);
     return true;
@@ -171,7 +162,7 @@ async function fork(mappingId: string, deps: ConfirmationPaneDeps): Promise<bool
       `Fork ${PLUGIN_NAME} box`,
       "",
       `Box: ${mapping.boxName}${mapping.boxId ? ` (${mapping.boxId})` : ""}`,
-      `Agent: ${getHarness(mapping.harness).title} (${mapping.mode}, ${mapping.credential} credential)`,
+      `Agent: ${getHarness(mapping.harness).title}`,
       `Local worktree: ${mapping.localRoot}`,
       "",
       "This snapshots the box now and starts a second box from that snapshot for the same worktree.",

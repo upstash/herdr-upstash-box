@@ -79,18 +79,15 @@ export async function showInfo(mappingId: string, deps: OperationPaneDeps = {}):
   try {
     const box = await openBox(mapping, { client: deps.client, env: deps.env });
     status = await currentStatus(box);
-    if (mapping.mode === "tui") {
-      agentSession = isLive(status)
-        ? (await agentSessionRunning(box, mappingId))
-          ? "running"
-          : "not running"
-        : `unknown while the box is ${status}`;
-    }
+    agentSession = isLive(status)
+      ? (await agentSessionRunning(box, mappingId))
+        ? "running"
+        : "not running"
+      : `unknown while the box is ${status}`;
   } catch (error) {
     status = isGone(error) ? "deleted" : `unavailable (${errorMessage(error)})`;
   }
   const lines = [
-    `Mode: ${mapping.mode}`,
     `Agent: ${getHarness(mapping.harness).title}`,
     `Model: ${mapping.model}`,
     `Box status: ${status}`,
@@ -131,7 +128,7 @@ async function stopLocked(mappingId: string, deps: OperationPaneDeps): Promise<S
     const box = await openBox(mapping, { client: deps.client, env: deps.env });
     const status = await currentStatus(box);
     if (status === "deleted") outcome = "missing";
-    else if (mapping.mode === "tui" && isLive(status)) outcome = await stopAgent(box, mappingId);
+    else if (isLive(status)) outcome = await stopAgent(box, mappingId);
   } catch (error) {
     if (!isGone(error)) throw error;
     outcome = "missing";
@@ -162,17 +159,13 @@ async function pauseLocked(mappingId: string, deps: OperationPaneDeps): Promise<
   const mapping = notDeleting(mappingId, deps);
   header(`Pause ${PLUGIN_NAME}`, mapping, write);
   let outcome: PauseOutcome = "paused";
-  let activeSchedules = 0;
   try {
     const box = await openBox(mapping, { client: deps.client, env: deps.env });
-    activeSchedules = (await box.schedule.list().catch(() => [])).filter(
-      (schedule) => schedule.status === "active",
-    ).length;
     const status = await currentStatus(box);
     if (status === "deleted") outcome = "missing";
     else if (status === "paused") outcome = "already_paused";
     else {
-      if (mapping.mode === "tui" && isLive(status)) {
+      if (isLive(status)) {
         write("Stopping the agent session...\n");
         await stopAgent(box, mappingId);
       }
@@ -190,9 +183,7 @@ async function pauseLocked(mappingId: string, deps: OperationPaneDeps): Promise<
         ? "The box no longer exists. The mapping is marked missing."
         : outcome === "already_paused"
           ? "The box was already paused."
-          : activeSchedules > 0
-            ? `Box paused for now. ${activeSchedules} active ${activeSchedules === 1 ? "schedule can" : "schedules can"} wake it at the next cron and incur compute and model costs.`
-            : "Box paused. Files are kept and compute has stopped. Reconnect or resume to bring it back."
+          : "Box paused. Files are kept and compute has stopped. Reconnect or resume to bring it back."
     }\n`,
   );
   return outcome;

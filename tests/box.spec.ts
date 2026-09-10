@@ -54,7 +54,7 @@ describe("keys", () => {
     const env = { CLAUDE_CODE_OAUTH_TOKEN: "t", ANTHROPIC_API_KEY: "an" };
     const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
     expect(providerApiKey(config, { env, secrets: {} })).toBeNull();
-    expect(() => requireProviderApiKey(config, { env, secrets: {} })).toThrow(/needs MY_KEY/);
+    expect(() => requireProviderApiKey(config, { env, secrets: {} })).toThrow(/MY_KEY is needed/);
   });
 
   it("ignores a providerApiKeyEnv written for another harness on reconnect", () => {
@@ -91,15 +91,12 @@ describe("keys", () => {
     expect(credentialConfigFor(custom, openrouterBox).providerApiKeyEnv).toBe("MY_KEY");
   });
 
-  it("lets config name the variable and explains what each mode needs", () => {
+  it("lets config name the variable and says which one is missing", () => {
     const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
     expect(providerApiKey(config, { env: { MY_KEY: "v" }, secrets: {} })?.value).toBe("v");
     expect(() => requireProviderApiKey(config, { env: {}, secrets: {} })).toThrow(
-      /TUI mode needs MY_KEY/,
+      /MY_KEY is needed for model/,
     );
-    expect(() =>
-      requireProviderApiKey({ ...config, mode: "native" }, { env: {}, secrets: {} }),
-    ).toThrow(/nativeKey is "local"/);
   });
 });
 

@@ -5,8 +5,8 @@ min_herdr_version = "0.8.0"
 description = "Run a coding agent in an Upstash Box from the worktree you are looking at."
 platforms = ["linux", "macos"]
 
-# On `plugin install`: fetch dependencies (the Box SDK and CLI), compile to dist/, then drop
-# the build-only packages. The CLI that native mode spawns is a dependency, not a PATH lookup.
+# On `plugin install`: fetch dependencies (the Box SDK), compile to dist/, then drop
+# the build-only packages.
 [[build]]
 command = ["npm", "ci"]
 
@@ -89,7 +89,7 @@ command = ["node", "dist/action.js"]
 [[actions]]
 id = "pause"
 title = "Pause Upstash Box"
-description = "Stop the agent session and pause the box. Active schedules may wake it at their next cron."
+description = "Stop the agent session and pause the box."
 contexts = ["pane"]
 command = ["node", "dist/action.js"]
 
@@ -128,27 +128,6 @@ description = "Open a live board of every box this plugin owns, with every verb 
 contexts = ["global", "workspace", "pane"]
 command = ["node", "dist/action.js"]
 
-[[actions]]
-id = "run-task"
-title = "Run typed task in Upstash Box"
-description = "Run a server-side agent task with a JSON Schema response and persist its typed result."
-contexts = ["pane"]
-command = ["node", "dist/action.js"]
-
-[[actions]]
-id = "run-results"
-title = "Show Upstash Box run results"
-description = "Sync scheduled run records and show recent persisted agent results."
-contexts = ["pane"]
-command = ["node", "dist/action.js"]
-
-[[actions]]
-id = "schedules"
-title = "Manage Upstash Box schedules"
-description = "List, create, pause, resume, and delete server-side agent schedules."
-contexts = ["pane"]
-command = ["node", "dist/action.js"]
-
 [[panes]]
 id = "setup"
 title = "Set up Upstash Box"
@@ -168,12 +147,6 @@ id = "agent"
 title = "Upstash Box agent"
 placement = "split"
 command = ["node", "dist/agent-pane.js"]
-
-[[panes]]
-id = "native"
-title = "Upstash Box"
-placement = "split"
-command = ["node", "dist/native-pane.js"]
 
 [[panes]]
 id = "operation"
@@ -205,18 +178,3 @@ width = "88%"
 height = "70%"
 command = ["node", "dist/previews-pane.js"]
 
-[[panes]]
-id = "agent-runs"
-title = "Upstash Box agent runs"
-placement = "popup"
-width = "88%"
-height = "80%"
-command = ["node", "dist/agent-runs-pane.js"]
-
-[[panes]]
-id = "schedules"
-title = "Upstash Box schedules"
-placement = "popup"
-width = "88%"
-height = "80%"
-command = ["node", "dist/schedules-pane.js"]

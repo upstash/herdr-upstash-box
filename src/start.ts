@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import type { Agent, Box, BoxConfig } from "@upstash/box";
+import type { Box, BoxConfig } from "@upstash/box";
 import {
   boxApiKey,
   boxNameFor,
@@ -37,7 +37,7 @@ export interface PreparedStart {
   mappingId: string;
   boxName: string;
   labels: string[];
-  providerKey: ProviderKey | null;
+  providerKey: ProviderKey;
   manifest: UploadManifest;
 }
 
@@ -50,12 +50,8 @@ export interface PrepareOptions {
   manifest?: UploadManifest;
 }
 
-// TUI mode needs a local provider key. Native mode uses the managed key unless nativeKey is local.
-export function providerKeyForStart(config: PluginConfig, keys: KeyOptions): ProviderKey | null {
-  if (config.mode === "tui" || config.nativeKey === "local") {
-    return requireProviderApiKey(config, keys);
-  }
-  return null;
+export function providerKeyForStart(config: PluginConfig, keys: KeyOptions): ProviderKey {
+  return requireProviderApiKey(config, keys);
 }
 
 export function assertNoActiveMapping(
@@ -107,10 +103,10 @@ export function remoteWorkingDirectory(
     : path.posix.join(mapping.remoteRoot, mapping.relativeCwd);
 }
 
-// TUI mode never hands the provider key to the box; it travels only inside each exec session.
+// The provider key is never handed to the box; it travels only inside each exec session.
 export function boxCreateConfig(prepared: PreparedStart, apiKey: string): BoxConfig {
   const { config } = prepared;
-  const base: BoxConfig = {
+  return {
     apiKey,
     name: prepared.boxName,
     labels: prepared.labels,
@@ -118,26 +114,6 @@ export function boxCreateConfig(prepared: PreparedStart, apiKey: string): BoxCon
     size: config.size,
     keepAlive: config.keepAlive,
   };
-  if (config.mode !== "native") return base;
-  return {
-    ...base,
-    agent: {
-      harness: config.harness as Agent,
-      model: config.model,
-      ...(config.nativeKey === "local" && prepared.providerKey
-        ? { apiKey: prepared.providerKey.value }
-        : {}),
-    },
-  };
-}
-
-function describeCredential(prepared: PreparedStart): string {
-  const { config, providerKey } = prepared;
-  if (config.mode === "tui")
-    return `${providerKey?.name ?? "provider key"} from this machine, passed per session`;
-  if (config.nativeKey === "local")
-    return `${providerKey?.name ?? "provider key"} from this machine, configured on the box`;
-  return "Box managed key";
 }
 
 export function describeStart(prepared: PreparedStart): string {
@@ -145,11 +121,10 @@ export function describeStart(prepared: PreparedStart): string {
   return [
     `Worktree: ${gitContext.root}${gitContext.branch ? ` (${gitContext.branch})` : ""}`,
     `Box: ${prepared.boxName}`,
-    `Mode: ${config.mode}`,
     `Agent: ${prepared.harness.title}`,
     `Model: ${config.model}`,
     `Runtime: ${config.runtime}, ${config.size}${config.keepAlive ? ", keep-alive" : ""}`,
-    `Credential: ${describeCredential(prepared)}`,
+    `Credential: ${prepared.providerKey.name} from this machine, passed per session`,
     `Remote root: ${config.remoteRoot}`,
     `Labels: ${prepared.labels.join(", ")}`,
     "",
@@ -162,10 +137,8 @@ export function newMapping(prepared: PreparedStart): Mapping {
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
     id: prepared.mappingId,
-    mode: prepared.config.mode,
     harness: prepared.config.harness,
     model: prepared.config.model,
-    credential: prepared.config.mode === "tui" ? "session" : prepared.config.nativeKey,
     sourcePaneId: prepared.gitContext.sourcePaneId,
     remotePaneId: null,
     connectionId: null,
@@ -212,7 +185,7 @@ export async function prepareBoxForMapping(
   await (deps.upload ?? uploadWorktree)(box, mapping, manifest);
   await deps.onLifecycle?.("preparing");
   const baselineCommit = await (deps.baseline ?? initializeRemoteBaseline)(box, mapping);
-  if (mapping.mode === "tui") await (deps.tmux ?? ensureTmux)(box);
+  await (deps.tmux ?? ensureTmux)(box);
   return { baselineCommit, uploadDigest: manifest.digest };
 }
 

@@ -1,11 +1,9 @@
 import crypto from "node:crypto";
-import type { Agent, Box, BoxConfig, Snapshot } from "@upstash/box";
+import type { Box, BoxConfig, Snapshot } from "@upstash/box";
 import {
   boxApiKey,
   boxNameFor,
-  credentialConfigFor,
   labelsFor,
-  requireProviderApiKey,
   sdkClient,
   type BoxClient,
   type KeyOptions,
@@ -23,29 +21,9 @@ export function snapshotRecord(snapshot: Pick<Snapshot, "id" | "name">, at = now
   return { id: snapshot.id, name: snapshot.name, at };
 }
 
-// The credential mode comes from the original mapping, never from whatever the config says today.
-export function forkCreateConfig(
-  original: Mapping,
-  config: Pick<PluginConfig, "providerApiKeyEnv" | "harness">,
-  apiKey: string,
-  mappingId: string,
-  boxName: string,
-  keys: KeyOptions,
-): BoxConfig {
-  const base: BoxConfig = { apiKey, name: boxName, labels: labelsFor(mappingId) };
-  if (original.mode !== "native") return base;
-  const key =
-    original.credential === "local"
-      ? requireProviderApiKey({ ...credentialConfigFor(config, original), mode: "native" }, keys)
-      : null;
-  return {
-    ...base,
-    agent: {
-      harness: original.harness as Agent,
-      model: original.model,
-      ...(key ? { apiKey: key.value } : {}),
-    },
-  };
+// A fork carries no credential either; the agent pane passes one per session, as for Start.
+export function forkCreateConfig(apiKey: string, mappingId: string, boxName: string): BoxConfig {
+  return { apiKey, name: boxName, labels: labelsFor(mappingId) };
 }
 
 // A fork is reachable only from the dashboard or its own pane, so it carries no source pane.
@@ -94,7 +72,7 @@ export async function forkMapping(
     localRoot: original.localRoot,
     mappingId,
   });
-  const createConfig = forkCreateConfig(original, options.config, apiKey, mappingId, boxName, keys);
+  const createConfig = forkCreateConfig(apiKey, mappingId, boxName);
   await updateState((state) => {
     state.mappings[mappingId] = reservedFork(original, mappingId, boxName);
     return state;

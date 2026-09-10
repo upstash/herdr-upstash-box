@@ -93,7 +93,7 @@ export function providerApiKey(
 }
 
 export function requireProviderApiKey(
-  config: CredentialConfig & Pick<PluginConfig, "mode">,
+  config: CredentialConfig,
   options: KeyOptions = {},
 ): ProviderKey {
   const key = providerApiKey(config, options);
@@ -101,9 +101,7 @@ export function requireProviderApiKey(
     const name = providerKeyName(config);
     throw new PluginError(
       "provider_api_key_missing",
-      config.mode === "tui"
-        ? `TUI mode needs ${name} for model ${config.model}. Set it in the environment or secrets.json, or switch mode to native.`
-        : `nativeKey is "local", which needs ${name} for model ${config.model}. Set it, or switch nativeKey to "managed".`,
+      `${name} is needed for model ${config.model}. Set it in the environment or secrets.json, or run setup.`,
     );
   }
   return key;

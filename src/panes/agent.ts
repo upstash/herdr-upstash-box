@@ -106,14 +106,8 @@ export async function runAgentPane(mappingId: string, deps: AgentPaneDeps = {}):
   const env = deps.env ?? process.env;
   const write = deps.write ?? stdoutWriter;
   const initial = requireMappingById(mappingId, deps.state);
-  if (initial.mode !== "tui") {
-    throw new PluginError("mapping_mode_mismatch", `Mapping ${mappingId} runs in native mode.`);
-  }
   const config = deps.config ?? loadConfig({ env });
-  const key = requireProviderApiKey(
-    { ...credentialConfigFor(config, initial), mode: "tui" },
-    { env },
-  );
+  const key = requireProviderApiKey(credentialConfigFor(config, initial), { env });
   const connection = await claimConnection(mappingId, {
     env,
     state: deps.state,

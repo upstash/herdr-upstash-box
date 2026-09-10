@@ -58,17 +58,14 @@ function prepare(config = DEFAULT_CONFIG, keys = withKey, root = "/repo") {
   );
 }
 
-const native = { ...DEFAULT_CONFIG, mode: "native" as const };
-
 describe("prepareStart", () => {
-  it("requires a provider key in TUI mode and for a local native key", () => {
+  it("requires a provider key", () => {
     expect(() => prepare(DEFAULT_CONFIG, noKey)).toThrow(/ANTHROPIC_API_KEY/);
-    expect(() => prepare({ ...native, nativeKey: "local" }, noKey)).toThrow(/nativeKey is "local"/);
   });
 
-  it("falls back to the managed key in native mode", () => {
-    const prepared = prepare(native, noKey);
-    expect(prepared.providerKey).toBeNull();
+  it("names and labels the box from the mapping id", () => {
+    const prepared = prepare();
+    expect(prepared.providerKey.name).toBe("ANTHROPIC_API_KEY");
     expect(prepared.labels).toEqual(["herdr", "hm:1234567812344123"]);
     expect(prepared.boxName).toMatch(/^herdr-claude-code-repo-[0-9a-f]{8}$/);
   });
@@ -85,9 +82,9 @@ describe("prepareStart", () => {
     const prepared = prepareStart(
       {},
       {
-        config: native,
+        config: DEFAULT_CONFIG,
         gitContext: gitContextFor(root),
-        keys: noKey,
+        keys: withKey,
         mappingId: MAPPING_ID,
       },
     );
@@ -96,7 +93,7 @@ describe("prepareStart", () => {
 });
 
 describe("boxCreateConfig and describeStart", () => {
-  it("never hands the provider key to the box in TUI mode", () => {
+  it("never hands the provider key to the box", () => {
     const config = boxCreateConfig(prepare(), "box-key");
     expect(config).toEqual({
       apiKey: "box-key",
@@ -109,30 +106,12 @@ describe("boxCreateConfig and describeStart", () => {
     expect(JSON.stringify(config)).not.toContain("provider-secret");
   });
 
-  it("configures the box agent on the managed key in native mode", () => {
-    expect(boxCreateConfig(prepare(native, noKey), "k").agent).toEqual({
-      harness: "claude-code",
-      model: "anthropic/claude-sonnet-5",
-    });
-  });
-
-  it("forwards the local key only when nativeKey is local", () => {
-    expect(boxCreateConfig(prepare({ ...native, nativeKey: "local" }, withKey), "k").agent).toEqual(
-      {
-        harness: "claude-code",
-        model: "anthropic/claude-sonnet-5",
-        apiKey: "provider-secret",
-      },
-    );
-  });
-
   it("describes the plan and upload without leaking the secret", () => {
     const text = describeStart(prepare());
     expect(text).toContain("Worktree: /repo (feature/x)");
     expect(text).toContain("ANTHROPIC_API_KEY from this machine, passed per session");
     expect(text).toContain("Upload: 0 files");
     expect(text).not.toContain("provider-secret");
-    expect(describeStart(prepare(native, noKey))).toContain("Credential: Box managed key");
   });
 
   it("maps the local cwd under the remote root", () => {
@@ -202,20 +181,6 @@ describe("provisionStart", () => {
     expect(readState({ directory }).mappings[MAPPING_ID]).toEqual(mapping);
   });
 
-  it("skips tmux for a native box", async () => {
-    const directory = temporaryDirectory();
-    directories.push(directory);
-    const { box, calls } = boxForProvision("box-3");
-    await provisionStart(prepare(native, noKey), {
-      client: fakeClient({ created: box }),
-      apiKey: "k",
-      state: { directory },
-    });
-    expect(calls.commands.some((command) => command.includes("tmux"))).toBe(false);
-    expect(calls.uploads).toEqual([]);
-    expect(calls.mkdirs).toEqual(["/workspace/home/worktree"]);
-  });
-
   it("refuses a second box for a worktree that already has one", async () => {
     const directory = temporaryDirectory();
     directories.push(directory);
@@ -227,13 +192,13 @@ describe("provisionStart", () => {
     );
     const { box } = boxForProvision();
     await expect(
-      provisionStart(prepare(native, noKey), {
+      provisionStart(prepare(), {
         client: fakeClient({ created: box }),
         apiKey: "k",
         state: { directory },
       }),
     ).rejects.toMatchObject({ code: "mapping_exists" });
-    const allowed = await provisionStart(prepare({ ...native, allowMultipleBoxes: true }, noKey), {
+    const allowed = await provisionStart(prepare({ ...DEFAULT_CONFIG, allowMultipleBoxes: true }), {
       client: fakeClient({ created: box }),
       apiKey: "k",
       state: { directory },
@@ -271,9 +236,9 @@ describe("interleaved starts", () => {
     const first = prepareStart(
       {},
       {
-        config: native,
+        config: DEFAULT_CONFIG,
         gitContext: gitContextFor(),
-        keys: noKey,
+        keys: withKey,
         mappingId: MAPPING_ID,
         manifest: stubManifest(),
       },
@@ -281,9 +246,9 @@ describe("interleaved starts", () => {
     const second = prepareStart(
       {},
       {
-        config: native,
+        config: DEFAULT_CONFIG,
         gitContext: gitContextFor(),
-        keys: noKey,
+        keys: withKey,
         mappingId: "22222222-2222-4222-8222-222222222222",
         manifest: stubManifest(),
       },

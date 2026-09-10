@@ -8,7 +8,6 @@ import {
   isPluginBox,
   KEY_ACTIONS,
   renderDashboard,
-  scheduleIndicator,
   splitKeys,
 } from "../src/dashboard-model.js";
 import { removeMapping } from "../src/state.js";
@@ -136,41 +135,6 @@ describe("dashboard model", () => {
     expect(KEY_ACTIONS["\u0003"]).toBe("quit");
     expect(KEY_ACTIONS.f).toBe("fork");
     expect(KEY_ACTIONS.R).toBe("refresh");
-    expect(KEY_ACTIONS.t).toBe("run-task");
-    expect(KEY_ACTIONS.h).toBe("run-results");
-    expect(KEY_ACTIONS.c).toBe("schedules");
-  });
-
-  it("summarizes locally persisted active and paused schedules", () => {
-    const base = {
-      mappingId: MAPPING_ID,
-      boxId: "box-1",
-      type: "prompt" as const,
-      cron: "* * * * *",
-      prompt: "work",
-      folder: "/workspace/home",
-      model: "anthropic/claude-sonnet-5",
-      timeout: 600_000,
-      lastRunAt: null,
-      lastRunStatus: null,
-      totalRuns: 0,
-      totalFailures: 0,
-      createdAt: "2026-09-09T10:00:00.000Z",
-      updatedAt: "2026-09-09T10:00:00.000Z",
-    };
-    expect(
-      scheduleIndicator(
-        {
-          schemaVersion: 1,
-          runs: [],
-          schedules: [
-            { ...base, id: "one", status: "active" },
-            { ...base, id: "two", status: "paused" },
-          ],
-        },
-        MAPPING_ID,
-      ),
-    ).toBe("1a/1p");
   });
 });
 
@@ -196,53 +160,11 @@ async function* keys(sequence: string[]): AsyncIterable<string> {
 }
 
 describe("runDashboardPane", () => {
-  it("opens the Phase 4 panes for native mappings and blocks TUI mappings", async () => {
-    const native = await stateWith(sampleMapping({ mode: "native" }));
-    const opened = recorder();
-    await runDashboardPane({
-      env: { UPSTASH_BOX_API_KEY: "k" },
-      state: native,
-      context: {},
-      openPane: opened.openPane,
-      write: () => undefined,
-      keys: keys(["t", "h", "c", "q"]),
-      listBoxes: async () => listing([{ id: "box-1" }]),
-      refreshMs: 0,
-    });
-    expect(opened.opened.map((entry) => entry.entrypoint)).toEqual([
-      "agent-runs",
-      "agent-runs",
-      "schedules",
-    ]);
-    expect(opened.opened.map((entry) => entry.options.env?.HERDR_BOX_AUTOMATION_MODE)).toEqual([
-      "task",
-      "results",
-      undefined,
-    ]);
-
-    const tui = await stateWith(sampleMapping());
-    const blocked = recorder();
-    const frames: string[] = [];
-    await runDashboardPane({
-      env: { UPSTASH_BOX_API_KEY: "k" },
-      state: tui,
-      context: {},
-      openPane: blocked.openPane,
-      write: (chunk) => void frames.push(chunk),
-      keys: keys(["t", "q"]),
-      listBoxes: async () => listing([{ id: "box-1" }]),
-      refreshMs: 0,
-    });
-    expect(blocked.opened).toEqual([]);
-    expect(frames.some((frame) => frame.includes("require a native-mode box"))).toBe(true);
-  });
-
   it("drives every verb through the panes the actions use", async () => {
     const state = await stateWith(
       sampleMapping({ createdAt: "2026-09-09T10:00:00.000Z" }),
       sampleMapping({
         id: SECOND_ID,
-        mode: "native",
         boxId: "box-2",
         boxName: "herdr-claude-code-other-00000000",
         createdAt: "2026-09-08T10:00:00.000Z",
@@ -292,7 +214,7 @@ describe("runDashboardPane", () => {
       "previews",
       "confirmation",
       "confirmation",
-      "native",
+      "agent",
       "confirmation",
       "operation",
     ]);
@@ -309,7 +231,10 @@ describe("runDashboardPane", () => {
     ]);
     expect(opened[6]?.options.env?.HERDR_BOX_DESTRUCTIVE_ACTION).toBe("fork");
     expect(opened[7]?.options.env?.HERDR_BOX_DESTRUCTIVE_ACTION).toBe("delete");
-    expect(opened[8]?.options.env).toEqual({ HERDR_BOX_MAPPING_ID: SECOND_ID });
+    expect(opened[8]?.options.env).toEqual({
+      HERDR_BOX_MAPPING_ID: SECOND_ID,
+      HERDR_AGENT: "claude",
+    });
     expect(opened[9]?.options.env).toEqual({
       HERDR_BOX_ORPHAN_BOX_ID: "box-orphan",
       HERDR_BOX_DESTRUCTIVE_ACTION: "delete-orphan",

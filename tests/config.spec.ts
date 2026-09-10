@@ -37,10 +37,10 @@ describe("validateConfig", () => {
     expect(() => validateConfig({ harnes: "codex" })).toThrow(/Unknown config keys: harnes/);
   });
 
-  it("rejects an unsupported mode, harness, or native key source", () => {
-    expect(() => validateConfig({ mode: "ssh" })).toThrow(PluginError);
+  it("rejects an unsupported harness, and mode is no longer a setting", () => {
     expect(() => validateConfig({ harness: "cursor" })).toThrow(/harness must be one of/);
-    expect(() => validateConfig({ nativeKey: "vault" })).toThrow(/nativeKey must be one of/);
+    expect(() => validateConfig({ mode: "tui" })).toThrow(/Unknown config keys: mode/);
+    expect(() => validateConfig({ nativeKey: "managed" })).toThrow(PluginError);
   });
 
   it("rejects a model id without a provider prefix", () => {
@@ -75,23 +75,6 @@ describe("validateConfig", () => {
     ).toMatchObject({
       excludedPaths: ["fixtures/"],
       allowSensitivePaths: [".env"],
-    });
-  });
-
-  it("accepts a native mode config with a custom box binary", () => {
-    const config = validateConfig({
-      mode: "native",
-      boxBin: "/opt/box",
-      size: "medium",
-      nativeKey: "local",
-      allowMultipleBoxes: true,
-    });
-    expect(config).toMatchObject({
-      mode: "native",
-      boxBin: "/opt/box",
-      size: "medium",
-      nativeKey: "local",
-      allowMultipleBoxes: true,
     });
   });
 });

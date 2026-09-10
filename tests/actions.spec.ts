@@ -10,10 +10,7 @@ import {
   reconnect,
   requestDelete,
   resume,
-  runResults,
-  runTask,
   runAction,
-  schedules,
   setup,
   snapshot,
   startAgent,
@@ -126,22 +123,6 @@ describe("start-agent", () => {
     );
   });
 
-  it("does not claim an agent screen in native mode", async () => {
-    const root = repo();
-    const { opened, openPane } = recorder();
-    await startAgent(
-      { focused_pane_cwd: root },
-      {
-        openPane,
-        config: { ...DEFAULT_CONFIG, mode: "native" },
-        state: await stateWith(),
-        env: {},
-        write: quiet,
-      },
-    );
-    expect(opened[0]?.options.env?.HERDR_AGENT).toBeUndefined();
-  });
-
   it("refuses to open a second box for a worktree unless allowed", async () => {
     const root = repo();
     const state = await stateWith(sampleMapping({ localRoot: root, localCwd: root }));
@@ -229,16 +210,6 @@ describe("reconnect", () => {
     ).rejects.toMatchObject({ code: "herdr_pane_not_found" });
   });
 
-  it("opens the native pane for a native mapping", async () => {
-    const state = await stateWith(
-      sampleMapping({ mode: "native", harness: "codex", model: "openai/gpt-5" }),
-    );
-    const { opened, openPane } = recorder();
-    await reconnect({ focused_pane_id: "pane-1" }, { openPane, state, env: {}, write: quiet });
-    expect(opened[0]?.entrypoint).toBe("native");
-    expect(opened[0]?.options.env?.HERDR_AGENT).toBeUndefined();
-  });
-
   it("lets a crashed or failed mapping recover, but not one being deleted", async () => {
     const { opened, openPane } = recorder();
     for (const lifecycleState of ["creating", "failed", "stopped"] as const) {
@@ -298,9 +269,6 @@ describe("runAction", () => {
         "previews",
         "reconnect",
         "resume",
-        "run-results",
-        "run-task",
-        "schedules",
         "setup",
         "snapshot",
         "start-agent",
@@ -364,33 +332,5 @@ describe("phase 3 verbs", () => {
     expect(opened[3]?.entrypoint).toBe("confirmation");
     expect(opened[3]?.options.env?.HERDR_BOX_DESTRUCTIVE_ACTION).toBe("fork");
     expect(forked.status).toBe("confirmation_opened");
-  });
-});
-
-describe("phase 4 verbs", () => {
-  it("routes native automation actions and rejects TUI mappings before opening a pane", async () => {
-    const native = await stateWith(sampleMapping({ mode: "native" }));
-    const { opened, openPane } = recorder();
-    const deps = { openPane, state: native, env: {}, write: quiet };
-    await runTask({ focused_pane_id: "pane-1" }, deps);
-    await runResults({ focused_pane_id: "pane-1" }, deps);
-    await schedules({ focused_pane_id: "pane-1" }, deps);
-    expect(opened.map((entry) => entry.entrypoint)).toEqual([
-      "agent-runs",
-      "agent-runs",
-      "schedules",
-    ]);
-    expect(opened.map((entry) => entry.options.env?.HERDR_BOX_AUTOMATION_MODE)).toEqual([
-      "task",
-      "results",
-      undefined,
-    ]);
-
-    const tui = await stateWith(sampleMapping());
-    const blocked = recorder();
-    await expect(
-      runTask({ focused_pane_id: "pane-1" }, { ...deps, state: tui, openPane: blocked.openPane }),
-    ).rejects.toMatchObject({ code: "automation_requires_native_mode" });
-    expect(blocked.opened).toEqual([]);
   });
 });
