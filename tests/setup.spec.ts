@@ -192,10 +192,15 @@ describe("setup pane", () => {
     expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
   });
 
-  it("replaces a present provider key when asked to", async () => {
+  it("replaces a provider key that lives in secrets.json when asked to", async () => {
     const directory = configDir();
+    fs.writeFileSync(
+      path.join(directory, "secrets.json"),
+      JSON.stringify({ UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" }),
+      { mode: 0o600 },
+    );
     const outcome = await runSetupPane({
-      env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" },
+      env: {},
       directory,
       write: quiet,
       prompt: scripted(["", "", "2", "r"]).prompt,
@@ -204,8 +209,26 @@ describe("setup pane", () => {
     });
     expect(outcome).toBe("saved");
     expect(readJson(path.join(directory, "secrets.json"))).toEqual({
+      UPSTASH_BOX_API_KEY: "k",
       ANTHROPIC_API_KEY: "new-key",
     });
+  });
+
+  it("refuses to replace a provider key that comes from the environment, since env wins", async () => {
+    const directory = configDir();
+    const secrets = scripted(["never-asked"]);
+    const outcome = await runSetupPane({
+      env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" },
+      directory,
+      write: quiet,
+      prompt: scripted(["", "", "2", "r"]).prompt,
+      promptSecret: secrets.prompt,
+      client: keyClient(),
+    });
+    expect(outcome).toBe("aborted");
+    expect(secrets.asked).toEqual([]);
+    expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
+    expect(fs.existsSync(path.join(directory, "config.json"))).toBe(false);
   });
 
   it("refuses a pasted value that is not a setup-token token", async () => {
@@ -290,7 +313,9 @@ describe("setup helpers", () => {
 
   it("recognises the setup-token shape and picks the subscription default correctly", () => {
     expect(isClaudeOAuthToken(TOKEN)).toBe(true);
+    expect(isClaudeOAuthToken(`sk-ant-oat02-${"b".repeat(48)}`)).toBe(true);
     expect(isClaudeOAuthToken("sk-ant-api03-console-key")).toBe(false);
+    expect(isClaudeOAuthToken("sk-ant-oat01-short")).toBe(false);
     const none = () => false;
     const fresh = { providerApiKeyEnv: null, model: "anthropic/claude-sonnet-5" };
     expect(defaultClaudeCredential(fresh, none)).toBe("oauth");

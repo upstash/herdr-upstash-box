@@ -72,7 +72,7 @@ const OPENCODE_PROVIDER_CHOICES: readonly Choice<Provider>[] = [
 ];
 
 // The shape `claude setup-token` prints; a Console key pasted here by mistake fails this.
-const OAUTH_TOKEN = /^sk-ant-oat01-[A-Za-z0-9_-]{32,}$/;
+const OAUTH_TOKEN = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{40,}$/;
 
 export function isClaudeOAuthToken(value: string): boolean {
   return OAUTH_TOKEN.test(value.trim());
@@ -274,11 +274,19 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
     providerApiKeyEnv = plan.name;
     let wanted = !present(plan.name);
     if (!wanted) {
+      const source = sourceOf(plan.name, env, secrets);
       const answer = await prompt(
-        `\n${plan.name}: found in ${sourceOf(plan.name, env, secrets)}. Enter keeps it, r replaces it: `,
+        `\n${plan.name}: found in ${source}. Enter keeps it, r replaces it: `,
       );
       if (answer === null) return abort();
       wanted = answer.trim().toLowerCase() === "r";
+      // The environment wins over secrets.json, so a replacement there would never be read.
+      if (wanted && env[plan.name]?.trim()) {
+        write(
+          `\n${plan.name} comes from the environment Herdr runs in, which takes precedence over secrets.json. Unset it there, then run setup again.\n`,
+        );
+        return "aborted";
+      }
     }
     if (wanted) {
       if (plan.hint === "setup-token") {
@@ -295,7 +303,7 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
       }
       if (plan.hint === "setup-token" && !isClaudeOAuthToken(trimmed)) {
         write(
-          "\nThat is not a `claude setup-token` token; they start with sk-ant-oat01-. Nothing was written.\n",
+          "\nThat is not a `claude setup-token` token; they start with sk-ant-oat. Nothing was written.\n",
         );
         return "aborted";
       }
