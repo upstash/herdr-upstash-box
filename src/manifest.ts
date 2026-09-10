@@ -225,16 +225,48 @@ export function assertUploadFits(
   const largest = [...sized]
     .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path))
     .slice(0, LARGEST_FILES_SHOWN);
+  // The weight is often spread over hundreds of small assets, so the five largest files alone can
+  // point nowhere; the heaviest top-level directories say what to exclude.
+  const directories = heaviestDirectories(sized);
   throw new PluginError(
     "upload_size_limit",
     [
       `The filtered upload is ${formatBytes(total)} across ${sized.length} files; the limit is ${formatBytes(maxUploadBytes)}.`,
+      ...(directories.length > 0
+        ? [
+            "Heaviest directories:",
+            ...directories.map(
+              (entry) =>
+                `  ${entry.path} (${formatBytes(entry.size)}, ${entry.files} ${entry.files === 1 ? "file" : "files"})`,
+            ),
+          ]
+        : []),
       "Largest files:",
       ...largest.map((entry) => `  ${entry.path} (${formatBytes(entry.size)})`),
       "Add directories or files to excludedPaths in config.json. Raising maxUploadBytes past 100 MB does not help: Box rejects larger uploads.",
     ].join("\n"),
-    { totalBytes: total, maxUploadBytes, largest },
+    { totalBytes: total, maxUploadBytes, largest, directories },
   );
+}
+
+export function heaviestDirectories(
+  sized: ReadonlyArray<{ path: string; size: number }>,
+  limit = LARGEST_FILES_SHOWN,
+): Array<{ path: string; size: number; files: number }> {
+  const totals = new Map<string, { size: number; files: number }>();
+  for (const entry of sized) {
+    const slash = entry.path.indexOf("/");
+    if (slash < 0) continue;
+    const directory = `${entry.path.slice(0, slash)}/`;
+    const current = totals.get(directory) ?? { size: 0, files: 0 };
+    current.size += entry.size;
+    current.files += 1;
+    totals.set(directory, current);
+  }
+  return [...totals.entries()]
+    .map(([path, total]) => ({ path, ...total }))
+    .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path))
+    .slice(0, limit);
 }
 
 export function formatBytes(bytes: number): string {
