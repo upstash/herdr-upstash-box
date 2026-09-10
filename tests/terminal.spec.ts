@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import { hiddenInputText } from "../src/pane-runtime.js";
+import { feedHiddenInput, type HiddenInput } from "../src/pane-runtime.js";
 import { bridgeTerminal, terminalSize } from "../src/terminal.js";
 
 function fakeStdin() {
@@ -89,13 +89,38 @@ describe("terminalSize", () => {
   });
 });
 
-describe("hiddenInputText", () => {
-  it("keeps a bracketed paste and drops the markers and cursor keys", () => {
-    const token = `sk-ant-oat01-${"a".repeat(40)}`;
-    expect(hiddenInputText(`\u001b[200~${token}\u001b[201~`)).toBe(token);
-    expect(hiddenInputText("\u001b[A")).toBe("");
-    expect(hiddenInputText("\u001bOA")).toBe("");
-    expect(hiddenInputText(`ab\u001b[Dc`)).toBe("abc");
-    expect(hiddenInputText("plain\r")).toBe("plain\r");
+describe("feedHiddenInput", () => {
+  const fresh = (): HiddenInput => ({ buffer: "", inPaste: false, pending: "" });
+  const token = `sk-ant-oat01-${"a".repeat(60)}${"b".repeat(48)}`;
+
+  it("keeps a line break that falls inside a bracketed paste, and submits on the Enter after it", () => {
+    const state = fresh();
+    const wrapped = `${token.slice(0, 79)}\r\n${token.slice(79)}`;
+    expect(feedHiddenInput(state, `\u001b[200~${wrapped}\u001b[201~`)).toBe("continue");
+    expect(state.buffer).toBe(token);
+    expect(feedHiddenInput(state, "\r")).toBe("submit");
+  });
+
+  it("submits on Enter outside a paste and cancels on Ctrl-C", () => {
+    const state = fresh();
+    expect(feedHiddenInput(state, "abc\r")).toBe("submit");
+    expect(state.buffer).toBe("abc");
+    expect(feedHiddenInput(fresh(), "\u0003")).toBe("cancel");
+  });
+
+  it("ignores cursor keys and handles a paste marker split across chunks", () => {
+    const state = fresh();
+    expect(feedHiddenInput(state, "\u001b[A")).toBe("continue");
+    expect(feedHiddenInput(state, "\u001bOB")).toBe("continue");
+    expect(feedHiddenInput(state, "\u001b[20")).toBe("continue");
+    expect(feedHiddenInput(state, "0~x\ny\u001b[201~")).toBe("continue");
+    expect(state.buffer).toBe("xy");
+    expect(state.pending).toBe("");
+  });
+
+  it("applies backspace and drops control characters", () => {
+    const state = fresh();
+    expect(feedHiddenInput(state, "ab\u007fc\u0001d\r")).toBe("submit");
+    expect(state.buffer).toBe("acd");
   });
 });

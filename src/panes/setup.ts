@@ -20,7 +20,17 @@ import {
   type Provider,
 } from "../harness.js";
 import { ask, askHidden, clearScreen, stdoutWriter } from "../pane-runtime.js";
+import {
+  captureSetupToken,
+  claudeAvailable,
+  isClaudeOAuthToken,
+  verifyClaudeToken,
+  type CaptureOptions,
+  type TokenCheck,
+} from "../setup-token.js";
 import { errorMessage, type Writer } from "../result.js";
+
+export { isClaudeOAuthToken } from "../setup-token.js";
 
 export interface SetupPaneDeps {
   env?: NodeJS.ProcessEnv;
@@ -29,6 +39,9 @@ export interface SetupPaneDeps {
   prompt?: (question: string) => Promise<string | null>;
   promptSecret?: (question: string) => Promise<string | null>;
   client?: BoxClient;
+  claudeAvailable?: () => boolean;
+  capture?: (options: CaptureOptions) => Promise<string | null>;
+  verifyToken?: (token: string) => Promise<TokenCheck>;
 }
 
 export type SetupOutcome = "saved" | "aborted";
@@ -59,13 +72,6 @@ const OPENCODE_PROVIDER_CHOICES: readonly Choice<Provider>[] = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
 ];
-
-// The shape `claude setup-token` prints; a Console key pasted here by mistake fails this.
-const OAUTH_TOKEN = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{40,}$/;
-
-export function isClaudeOAuthToken(value: string): boolean {
-  return OAUTH_TOKEN.test(value.trim());
-}
 
 // A blank answer keeps the current value; a number picks; anything else asks again.
 export async function choose<T extends string>(
@@ -172,6 +178,48 @@ async function planCredential(
   };
 }
 
+// Runs `claude setup-token` and captures the token when Claude Code is installed here; otherwise,
+// or when the capture fails, asks for a paste. Either way the token is checked before it is kept.
+async function obtainSetupToken(
+  name: string,
+  deps: SetupPaneDeps,
+  write: Writer,
+  promptSecret: (question: string) => Promise<string | null>,
+): Promise<string | null> {
+  let token: string | null = null;
+  if ((deps.claudeAvailable ?? claudeAvailable)()) {
+    write(
+      "\nRunning `claude setup-token`. Approve it in the browser; the token is captured here and never shown.\n\n",
+    );
+    token = await (deps.capture ?? captureSetupToken)({ write });
+    if (token === null) write("\nNo token was captured. Paste one instead.\n");
+  } else {
+    write(
+      "\nClaude Code is not installed on this machine. Where it is, run `claude setup-token`, approve it in the browser, and paste the token here. It is not echoed.\n",
+    );
+  }
+  if (token === null) {
+    const pasted = await promptSecret(`${name}: `);
+    if (pasted === null) return null;
+    token = pasted.trim();
+    if (!token) return "";
+    if (!isClaudeOAuthToken(token)) {
+      write("\nThat is not a `claude setup-token` token; they start with sk-ant-oat.\n");
+      return null;
+    }
+  }
+  write("Checking the token with Anthropic...\n");
+  const check = await (deps.verifyToken ?? verifyClaudeToken)(token);
+  if (check === "invalid") {
+    write(
+      "\nAnthropic rejected that token. Copy it again as one line, or run `claude setup-token` again.\n",
+    );
+    return null;
+  }
+  if (check === "unknown") write("Could not reach Anthropic to check it; saving it anyway.\n");
+  return token;
+}
+
 function readJsonObject(file: string): Record<string, unknown> {
   if (!fs.existsSync(file)) return {};
   const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
@@ -275,22 +323,14 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
     }
   }
   if (wanted) {
-    if (plan.hint === "setup-token") {
-      write(
-        "\nIn another terminal run `claude setup-token`, approve it in the browser, and paste the token it prints here. It is not echoed.\n",
-      );
-    }
-    const value = await promptSecret(`${plan.name}: `);
+    const value =
+      plan.hint === "setup-token"
+        ? await obtainSetupToken(plan.name, deps, write, promptSecret)
+        : await promptSecret(`${plan.name}: `);
     if (value === null) return abort();
     const trimmed = value.trim();
     if (!trimmed) {
       write(`\n${plan.name} is required for this agent.\n`);
-      return "aborted";
-    }
-    if (plan.hint === "setup-token" && !isClaudeOAuthToken(trimmed)) {
-      write(
-        "\nThat is not a `claude setup-token` token; they start with sk-ant-oat. Nothing was written.\n",
-      );
       return "aborted";
     }
     newSecrets[plan.name] = trimmed;
