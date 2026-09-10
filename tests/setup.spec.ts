@@ -60,6 +60,8 @@ function readJson(file: string): Record<string, unknown> {
 }
 
 const quiet = () => undefined;
+// No real `claude setup-token` and no network from the suite.
+const offline = { claudeAvailable: () => false, verifyToken: async () => "valid" as const };
 
 describe("setup pane", () => {
   it("validates the Box key, then writes config and secrets at 600 for a subscription token", async () => {
@@ -68,6 +70,7 @@ describe("setup pane", () => {
     const answers = scripted(["", "1"]);
     const secrets = scripted(["box-key", TOKEN]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -97,6 +100,7 @@ describe("setup pane", () => {
     const answers = scripted(["", "2"]);
     const secrets = scripted(["bad-key", "good-key", "anthropic-key"]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -117,6 +121,7 @@ describe("setup pane", () => {
     const client = keyClient();
     const secrets = scripted([]);
     const outcome = await runSetupPane({
+      ...offline,
       env: { UPSTASH_BOX_API_KEY: "from-env", OPENAI_API_KEY: "from-env-too" },
       directory,
       write: quiet,
@@ -150,6 +155,7 @@ describe("setup pane", () => {
     );
     const output: string[] = [];
     const outcome = await runSetupPane({
+      ...offline,
       env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "an" },
       directory,
       write: (chunk) => void output.push(chunk),
@@ -172,6 +178,7 @@ describe("setup pane", () => {
     const answers = scripted([null]);
     const secrets = scripted(["box-key"]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -188,6 +195,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const secrets = scripted(["box-key", TOKEN]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -205,6 +213,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const secrets = scripted([]);
     const outcome = await runSetupPane({
+      ...offline,
       env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "an" },
       directory,
       write: quiet,
@@ -228,6 +237,7 @@ describe("setup pane", () => {
       { mode: 0o600 },
     );
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -246,6 +256,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const secrets = scripted(["never-asked"]);
     const outcome = await runSetupPane({
+      ...offline,
       env: { UPSTASH_BOX_API_KEY: "k", ANTHROPIC_API_KEY: "old" },
       directory,
       write: quiet,
@@ -259,9 +270,96 @@ describe("setup pane", () => {
     expect(fs.existsSync(path.join(directory, "config.json"))).toBe(false);
   });
 
+  it("captures the token from claude setup-token when Claude Code is installed", async () => {
+    const directory = configDir();
+    const output: string[] = [];
+    const secrets = scripted(["box-key"]);
+    let captured = 0;
+    const outcome = await runSetupPane({
+      ...offline,
+      env: {},
+      directory,
+      write: (chunk) => void output.push(chunk),
+      prompt: scripted(["", "1"]).prompt,
+      promptSecret: secrets.prompt,
+      client: keyClient(),
+      claudeAvailable: () => true,
+      capture: async ({ write }) => {
+        captured += 1;
+        write("Opening browser...\n[token captured]\n");
+        return TOKEN;
+      },
+    });
+    expect(outcome).toBe("saved");
+    expect(captured).toBe(1);
+    expect(secrets.asked).toEqual(["Upstash Box API key: "]);
+    expect(readJson(path.join(directory, "secrets.json"))).toMatchObject({
+      CLAUDE_CODE_OAUTH_TOKEN: TOKEN,
+    });
+    expect(output.join("")).toContain("Checking the token with Anthropic");
+    expect(output.join("")).not.toContain(TOKEN);
+  });
+
+  it("falls back to a paste when the capture yields nothing", async () => {
+    const directory = configDir();
+    const secrets = scripted(["box-key", TOKEN]);
+    const outcome = await runSetupPane({
+      ...offline,
+      env: {},
+      directory,
+      write: quiet,
+      prompt: scripted(["", "1"]).prompt,
+      promptSecret: secrets.prompt,
+      client: keyClient(),
+      claudeAvailable: () => true,
+      capture: async () => null,
+    });
+    expect(outcome).toBe("saved");
+    expect(secrets.asked).toEqual(["Upstash Box API key: ", "CLAUDE_CODE_OAUTH_TOKEN: "]);
+    expect(readJson(path.join(directory, "secrets.json")).CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+  });
+
+  it("refuses a token Anthropic rejects and writes nothing", async () => {
+    const directory = configDir();
+    const output: string[] = [];
+    const outcome = await runSetupPane({
+      ...offline,
+      env: {},
+      directory,
+      write: (chunk) => void output.push(chunk),
+      prompt: scripted(["", "1"]).prompt,
+      promptSecret: scripted(["box-key", TOKEN]).prompt,
+      client: keyClient(),
+      verifyToken: async () => "invalid",
+    });
+    expect(outcome).toBe("aborted");
+    expect(output.join("")).toContain("Anthropic rejected that token");
+    expect(fs.existsSync(path.join(directory, "secrets.json"))).toBe(false);
+    expect(fs.existsSync(path.join(directory, "config.json"))).toBe(false);
+  });
+
+  it("saves a token it could not check, and says so", async () => {
+    const directory = configDir();
+    const output: string[] = [];
+    const outcome = await runSetupPane({
+      ...offline,
+      env: {},
+      directory,
+      write: (chunk) => void output.push(chunk),
+      prompt: scripted(["", "1"]).prompt,
+      promptSecret: scripted(["box-key", TOKEN]).prompt,
+      client: keyClient(),
+      verifyToken: async () => "unknown",
+    });
+    expect(outcome).toBe("saved");
+    expect(output.join("")).toContain("Could not reach Anthropic");
+    expect(readJson(path.join(directory, "secrets.json")).CLAUDE_CODE_OAUTH_TOKEN).toBe(TOKEN);
+  });
+
   it("refuses a pasted value that is not a setup-token token", async () => {
     const directory = configDir();
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -277,6 +375,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const client = keyClient([], ["k1"]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,
@@ -293,6 +392,7 @@ describe("setup pane", () => {
     const directory = configDir();
     const client = keyClient(["a", "b", "c"]);
     const outcome = await runSetupPane({
+      ...offline,
       env: {},
       directory,
       write: quiet,

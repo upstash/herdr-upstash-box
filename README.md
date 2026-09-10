@@ -39,7 +39,7 @@ herdr plugin link "$(pwd)"
 herdr plugin action invoke setup --plugin upstash.box
 ```
 
-Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If you pick the subscription option, setup asks you to run `claude setup-token` in another terminal and paste the token it prints; it checks the token's shape before saving it. A credential that is already present can be kept or replaced, unless it comes from the environment: the environment outranks the file, so setup says to unset it there instead.
+Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If you pick the subscription option and Claude Code is installed on this machine, setup runs `claude setup-token` for you: your browser opens to approve it, and the token is captured from the command's output without ever being shown. Otherwise you paste one from another terminal, and a line break inside the paste is fine. Either way the token is checked with Anthropic before it is saved. A credential that is already present can be kept or replaced, unless it comes from the environment: the environment outranks the file, so setup says to unset it there instead.
 
 Everything setup writes can also be written by hand, as below.
 
