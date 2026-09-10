@@ -12,9 +12,15 @@ import { assertNativeAutomationMapping } from "./automation.js";
 import { parsePluginContext, resolveGitContext, type PluginContext } from "./context.js";
 import { getHarness } from "./harness.js";
 import { openPluginPane, type OpenPane } from "./herdr.js";
-import { emitResult, PluginError, type ActionResult, type Writer } from "./result.js";
+import { emitResult, errorCode, PluginError, type ActionResult, type Writer } from "./result.js";
 import { assertNoActiveMapping } from "./start.js";
-import { readState, requireMapping, type Mapping, type StateOptions } from "./state.js";
+import {
+  patchMapping,
+  readState,
+  requireMapping,
+  type Mapping,
+  type StateOptions,
+} from "./state.js";
 
 export interface ActionDeps {
   openPane?: OpenPane;
@@ -142,11 +148,22 @@ export async function reconnect(
     );
   }
   const pane = mapping.mode === "tui" ? "agent" : "native";
-  (deps.openPane ?? openPluginPane)(pane, context, {
-    placement: "split",
-    targetPaneId: mapping.sourcePaneId ?? context.focused_pane_id,
+  const options = {
+    placement: "split" as const,
     env: { [MAPPING_ID_ENV]: mapping.id, ...agentEnvironment(mapping) },
-  });
+  };
+  const open = deps.openPane ?? openPluginPane;
+  const focused = context.focused_pane_id ?? null;
+  const remembered = mapping.sourcePaneId;
+  try {
+    open(pane, context, { ...options, targetPaneId: remembered ?? focused });
+  } catch (error) {
+    // The source pane belonged to an earlier Herdr session; anchor to the focused pane instead.
+    if (errorCode(error) !== "herdr_pane_not_found" || !focused || focused === remembered)
+      throw error;
+    open(pane, context, { ...options, targetPaneId: focused });
+    await patchMapping(mapping.id, { sourcePaneId: focused }, deps.state);
+  }
   return emitResult("reconnect", "opened", { ...summary(mapping), pane }, deps.write);
 }
 
