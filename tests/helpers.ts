@@ -54,10 +54,8 @@ export function sampleMapping(overrides: Partial<Mapping> = {}): Mapping {
   return {
     schemaVersion: 1,
     id: MAPPING_ID,
-    mode: "tui",
     harness: "claude-code",
     model: "anthropic/claude-sonnet-5",
-    credential: "session",
     sourcePaneId: "pane-1",
     remotePaneId: null,
     connectionId: null,

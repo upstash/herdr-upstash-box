@@ -4,19 +4,13 @@ import { BoxError } from "@upstash/box";
 import { sdkClient, type BoxClient } from "../box.js";
 import {
   configDirectory,
-  loadConfig,
+  DEFAULT_CONFIG,
   loadSecrets,
   resolveSecret,
   validateConfig,
   type PluginConfig,
 } from "../config.js";
-import {
-  BOX_API_KEY_ENV,
-  BOX_LABEL,
-  PLUGIN_NAME,
-  type HarnessId,
-  type Mode,
-} from "../constants.js";
+import { BOX_API_KEY_ENV, BOX_LABEL, PLUGIN_NAME, type HarnessId } from "../constants.js";
 import {
   CLAUDE_OAUTH_TOKEN_ENV,
   DEFAULT_MODELS,
@@ -50,11 +44,6 @@ const HARNESS_CHOICES: readonly Choice<HarnessId>[] = [
   { value: "claude-code", label: "Claude Code" },
   { value: "codex", label: "Codex" },
   { value: "opencode", label: "OpenCode" },
-];
-
-const MODE_CHOICES: readonly Choice<Mode>[] = [
-  { value: "tui", label: "TUI: the agent's own terminal UI, using your provider credential" },
-  { value: "native", label: "Native: the Upstash Box CLI on the managed key, no provider key" },
 ];
 
 type ClaudeCredential = "oauth" | "anthropic" | "openrouter";
@@ -218,7 +207,12 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
   clearScreen(write);
   write(`Set up ${PLUGIN_NAME}\n\nConfig directory: ${directory}\n`);
 
-  const configured = loadConfig({ directory });
+  // Keys config.json no longer accepts (such as the removed mode) are dropped, so setup is the fix
+  // for an old file rather than one more thing that fails on it.
+  const rawConfig = readJsonObject(configFile);
+  const dropped = Object.keys(rawConfig).filter((key) => !Object.hasOwn(DEFAULT_CONFIG, key));
+  for (const key of dropped) delete rawConfig[key];
+  const configured = validateConfig(rawConfig);
   const secrets: Record<string, string> = { ...loadSecrets({ directory }) };
   const newSecrets: Record<string, string> = {};
 
@@ -261,63 +255,52 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
 
   const harness = await choose(prompt, write, "Agent", HARNESS_CHOICES, configured.harness);
   if (harness === null) return abort();
-  const mode = await choose(prompt, write, "Mode", MODE_CHOICES, configured.mode);
-  if (mode === null) return abort();
-
-  let model = harness === configured.harness ? configured.model : DEFAULT_MODELS[harness];
-  let providerApiKeyEnv: string | null = null;
-  if (mode === "tui") {
-    const present = (name: string) => Boolean(resolveSecret(name, { env, secrets }));
-    const plan = await planCredential(harness, configured, present, prompt, write);
-    if (plan === null) return abort();
-    model = plan.model;
-    providerApiKeyEnv = plan.name;
-    let wanted = !present(plan.name);
-    if (!wanted) {
-      const source = sourceOf(plan.name, env, secrets);
-      const answer = await prompt(
-        `\n${plan.name}: found in ${source}. Enter keeps it, r replaces it: `,
+  const present = (name: string) => Boolean(resolveSecret(name, { env, secrets }));
+  const plan = await planCredential(harness, configured, present, prompt, write);
+  if (plan === null) return abort();
+  let wanted = !present(plan.name);
+  if (!wanted) {
+    const source = sourceOf(plan.name, env, secrets);
+    const answer = await prompt(
+      `\n${plan.name}: found in ${source}. Enter keeps it, r replaces it: `,
+    );
+    if (answer === null) return abort();
+    wanted = answer.trim().toLowerCase() === "r";
+    // The environment wins over secrets.json, so a replacement there would never be read.
+    if (wanted && env[plan.name]?.trim()) {
+      write(
+        `\n${plan.name} comes from the environment Herdr runs in, which takes precedence over secrets.json. Unset it there, then run setup again.\n`,
       );
-      if (answer === null) return abort();
-      wanted = answer.trim().toLowerCase() === "r";
-      // The environment wins over secrets.json, so a replacement there would never be read.
-      if (wanted && env[plan.name]?.trim()) {
-        write(
-          `\n${plan.name} comes from the environment Herdr runs in, which takes precedence over secrets.json. Unset it there, then run setup again.\n`,
-        );
-        return "aborted";
-      }
-    }
-    if (wanted) {
-      if (plan.hint === "setup-token") {
-        write(
-          "\nIn another terminal run `claude setup-token`, approve it in the browser, and paste the token it prints here. It is not echoed.\n",
-        );
-      }
-      const value = await promptSecret(`${plan.name}: `);
-      if (value === null) return abort();
-      const trimmed = value.trim();
-      if (!trimmed) {
-        write(`\n${plan.name} is required for TUI mode with this agent.\n`);
-        return "aborted";
-      }
-      if (plan.hint === "setup-token" && !isClaudeOAuthToken(trimmed)) {
-        write(
-          "\nThat is not a `claude setup-token` token; they start with sk-ant-oat. Nothing was written.\n",
-        );
-        return "aborted";
-      }
-      newSecrets[plan.name] = trimmed;
+      return "aborted";
     }
   }
+  if (wanted) {
+    if (plan.hint === "setup-token") {
+      write(
+        "\nIn another terminal run `claude setup-token`, approve it in the browser, and paste the token it prints here. It is not echoed.\n",
+      );
+    }
+    const value = await promptSecret(`${plan.name}: `);
+    if (value === null) return abort();
+    const trimmed = value.trim();
+    if (!trimmed) {
+      write(`\n${plan.name} is required for this agent.\n`);
+      return "aborted";
+    }
+    if (plan.hint === "setup-token" && !isClaudeOAuthToken(trimmed)) {
+      write(
+        "\nThat is not a `claude setup-token` token; they start with sk-ant-oat. Nothing was written.\n",
+      );
+      return "aborted";
+    }
+    newSecrets[plan.name] = trimmed;
+  }
 
-  const rawConfig = readJsonObject(configFile);
   const nextConfig: Record<string, unknown> = {
     ...rawConfig,
-    mode,
     harness,
-    model,
-    providerApiKeyEnv,
+    model: plan.model,
+    providerApiKeyEnv: plan.name,
   };
   if (harness !== configured.harness) nextConfig.agentArgs = [];
   validateConfig(nextConfig);
@@ -327,8 +310,10 @@ export async function runSetupPane(deps: SetupPaneDeps = {}): Promise<SetupOutco
   }
 
   write(`\nSaved ${configFile}\n`);
-  write(`  mode: ${mode}\n  harness: ${getHarness(harness).title}\n  model: ${model}\n`);
-  if (providerApiKeyEnv) write(`  credential: ${providerApiKeyEnv}\n`);
+  write(
+    `  harness: ${getHarness(harness).title}\n  model: ${plan.model}\n  credential: ${plan.name}\n`,
+  );
+  if (dropped.length > 0) write(`  removed keys no longer supported: ${dropped.join(", ")}\n`);
   if (Object.keys(newSecrets).length > 0) {
     write(`Saved ${Object.keys(newSecrets).join(", ")} to ${secretsFile} (mode 600)\n`);
   }

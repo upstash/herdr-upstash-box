@@ -1,6 +1,5 @@
 import { loadConfig, overrideHarness, type PluginConfig } from "./config.js";
 import {
-  AUTOMATION_MODE_ENV,
   DESTRUCTIVE_ACTION_ENV,
   HARNESS_OVERRIDE_ENV,
   MAPPING_ID_ENV,
@@ -8,7 +7,6 @@ import {
   SOURCE_CONTEXT_ENV,
   type HarnessId,
 } from "./constants.js";
-import { assertNativeAutomationMapping } from "./automation.js";
 import { parsePluginContext, resolveGitContext, type PluginContext } from "./context.js";
 import { getHarness } from "./harness.js";
 import { openPluginPane, type OpenPane } from "./herdr.js";
@@ -34,8 +32,8 @@ function contextEnvironment(context: PluginContext): Record<string, string> {
   return { [SOURCE_CONTEXT_ENV]: JSON.stringify(context) };
 }
 
-function agentEnvironment(mapping: Pick<Mapping, "mode" | "harness">): Record<string, string> {
-  return mapping.mode === "tui" ? { HERDR_AGENT: getHarness(mapping.harness).detectionKind } : {};
+function agentEnvironment(mapping: Pick<Mapping, "harness">): Record<string, string> {
+  return { HERDR_AGENT: getHarness(mapping.harness).detectionKind };
 }
 
 function mappingFromContext(context: PluginContext, deps: ActionDeps): Mapping {
@@ -57,26 +55,6 @@ function openMappedOperation(
     env: { [MAPPING_ID_ENV]: mapping.id, [OPERATION_ENV]: actionId },
   });
   return emitResult(actionId, "opened", { ...summary(mapping), pane: "operation" }, deps.write);
-}
-
-function openAutomation(
-  actionId: "run-task" | "run-results" | "schedules",
-  context: PluginContext,
-  deps: ActionDeps,
-): ActionResult {
-  const mapping = mappingFromContext(context, deps);
-  assertNativeAutomationMapping(mapping);
-  const pane = actionId === "schedules" ? "schedules" : "agent-runs";
-  (deps.openPane ?? openPluginPane)(pane, context, {
-    placement: "popup",
-    env: {
-      [MAPPING_ID_ENV]: mapping.id,
-      ...(pane === "agent-runs"
-        ? { [AUTOMATION_MODE_ENV]: actionId === "run-task" ? "task" : "results" }
-        : {}),
-    },
-  });
-  return emitResult(actionId, "opened", { ...summary(mapping), pane }, deps.write);
 }
 
 function openConfirmation(
@@ -117,7 +95,6 @@ export async function startAgent(
     "opened",
     {
       pane: "start",
-      mode: config.mode,
       harness: config.harness,
       model: config.model,
       worktree: gitContext.root,
@@ -147,7 +124,7 @@ export async function reconnect(
       `Mapping ${mapping.id} is ${mapping.lifecycleState}. Delete it and start again.`,
     );
   }
-  const pane = mapping.mode === "tui" ? "agent" : "native";
+  const pane = "agent";
   const options = {
     placement: "split" as const,
     env: { [MAPPING_ID_ENV]: mapping.id, ...agentEnvironment(mapping) },
@@ -206,24 +183,6 @@ export const requestDelete = (context: PluginContext, deps: ActionDeps = {}) =>
   Promise.resolve(openConfirmation("delete-box", "delete", context, deps));
 export const fork = (context: PluginContext, deps: ActionDeps = {}) =>
   Promise.resolve(openConfirmation("fork", "fork", context, deps));
-export async function runTask(
-  context: PluginContext,
-  deps: ActionDeps = {},
-): Promise<ActionResult> {
-  return openAutomation("run-task", context, deps);
-}
-export async function runResults(
-  context: PluginContext,
-  deps: ActionDeps = {},
-): Promise<ActionResult> {
-  return openAutomation("run-results", context, deps);
-}
-export async function schedules(
-  context: PluginContext,
-  deps: ActionDeps = {},
-): Promise<ActionResult> {
-  return openAutomation("schedules", context, deps);
-}
 
 export type Action = (context: PluginContext, deps?: ActionDeps) => Promise<ActionResult>;
 
@@ -243,9 +202,6 @@ export const ACTIONS: Readonly<Record<string, Action>> = Object.freeze({
   fork,
   previews,
   dashboard,
-  "run-task": runTask,
-  "run-results": runResults,
-  schedules,
   "delete-box": requestDelete,
 });
 

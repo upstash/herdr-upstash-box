@@ -28,18 +28,7 @@ describe("herdr-plugin.toml", () => {
 
   it("declares every pane the actions open", () => {
     expect(sectionIds("panes").sort()).toEqual(
-      [
-        "setup",
-        "start",
-        "agent",
-        "native",
-        "operation",
-        "confirmation",
-        "dashboard",
-        "previews",
-        "agent-runs",
-        "schedules",
-      ].sort(),
+      ["setup", "start", "agent", "operation", "confirmation", "dashboard", "previews"].sort(),
     );
   });
 

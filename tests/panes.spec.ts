@@ -1,18 +1,9 @@
 import crypto from "node:crypto";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { readAutomation, updateAutomation } from "../src/automation.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { runAgentPane } from "../src/panes/agent.js";
 import { runConfirmationPane } from "../src/panes/confirmation.js";
-import {
-  boxCli,
-  bundledBoxCli,
-  childEnvironment,
-  runNativePane,
-  type SpawnFn,
-} from "../src/panes/native.js";
 import {
   applyChanges,
   pauseMapping,
@@ -21,7 +12,7 @@ import {
   snapshotMapping,
   stopMapping,
 } from "../src/panes/operation.js";
-import { paneTitle, runStartPane } from "../src/panes/start.js";
+import { PANE_TITLE, runStartPane } from "../src/panes/start.js";
 import { runSync } from "../src/process.js";
 import type { Attached, AttachOptions } from "../src/session.js";
 import { readState, removeMapping, updateState } from "../src/state.js";
@@ -363,11 +354,7 @@ describe("runAgentPane", () => {
     });
   });
 
-  it("refuses a native mapping and a missing provider key", async () => {
-    const native = await stateWith(sampleMapping({ mode: "native" }));
-    await expect(
-      runAgentPane(MAPPING_ID, { env: tuiEnv, state: native, config: DEFAULT_CONFIG }),
-    ).rejects.toThrow(/native mode/);
+  it("refuses a missing provider key", async () => {
     const tui = await stateWith(sampleMapping());
     await expect(
       runAgentPane(MAPPING_ID, { env: {}, state: tui, config: DEFAULT_CONFIG }),
@@ -375,98 +362,8 @@ describe("runAgentPane", () => {
   });
 });
 
-interface SpawnCall {
-  command: string;
-  args: string[];
-  options: { env: NodeJS.ProcessEnv; cwd?: string };
-}
-
-function fakeSpawn(outcome: { exit?: number; errorCode?: string } = {}) {
-  const calls: SpawnCall[] = [];
-  const spawn: SpawnFn = (command, args, options) => {
-    calls.push({ command, args, options });
-    const child = new EventEmitter();
-    setImmediate(() => {
-      if (outcome.errorCode) {
-        child.emit("error", Object.assign(new Error("spawn failed"), { code: outcome.errorCode }));
-      } else {
-        child.emit("exit", outcome.exit ?? 0);
-      }
-    });
-    return child as unknown as ReturnType<SpawnFn>;
-  };
-  return { calls, spawn };
-}
-
-describe("runNativePane", () => {
-  const env = { UPSTASH_BOX_API_KEY: "box-key", HERDR_PANE_ID: "pane-4" };
-
-  it("runs the Box CLI REPL against the mapped box with the key in its environment", async () => {
-    const state = await stateWith(sampleMapping({ mode: "native", localCwd: "/repo" }));
-    const { calls, spawn } = fakeSpawn();
-    const code = await runNativePane(MAPPING_ID, {
-      env,
-      state,
-      config: { ...DEFAULT_CONFIG, mode: "native", boxBin: "/opt/box" },
-      client: fakeClient({ "box-1": fakeBox().box }),
-      ensureRunning: live,
-      spawn,
-    });
-    expect(code).toBe(0);
-    expect(calls[0]).toMatchObject({ command: "/opt/box", args: ["connect", "box-1"] });
-    expect(calls[0]?.options.env.UPSTASH_BOX_API_KEY).toBe("box-key");
-    expect(calls[0]?.options.cwd).toBe("/repo");
-    expect(readState(state).mappings[MAPPING_ID]).toMatchObject({
-      lifecycleState: "ready",
-      everAttached: true,
-      connectionId: null,
-    });
-  });
-
-  it("explains a missing Box CLI", async () => {
-    const state = await stateWith(sampleMapping({ mode: "native" }));
-    const { spawn } = fakeSpawn({ errorCode: "ENOENT" });
-    await expect(
-      runNativePane(MAPPING_ID, {
-        env,
-        state,
-        config: { ...DEFAULT_CONFIG, mode: "native" },
-        client: fakeClient({ "box-1": fakeBox().box }),
-        ensureRunning: live,
-        spawn,
-      }),
-    ).rejects.toThrow(/ships with this plugin, so reinstall the plugin/);
-    expect(readState(state).mappings[MAPPING_ID]?.lifecycleState).toBe("failed");
-  });
-
-  it("resolves the binary from config, then the environment, then the bundled CLI", () => {
-    const bundled = () => "/pkg/node_modules/@upstash/box-cli/dist/cli.js";
-    expect(boxCli({ boxBin: "/a" }, { HERDR_BOX_BIN: "/b" }, bundled)).toBe("/a");
-    expect(boxCli({ boxBin: null }, { HERDR_BOX_BIN: "/b" }, bundled)).toBe("/b");
-    expect(boxCli({ boxBin: null }, {}, bundled)).toBe(bundled());
-    expect(boxCli({ boxBin: null }, {}, () => null)).toBe("box");
-  });
-
-  it("finds the CLI the plugin ships with", () => {
-    const resolved = bundledBoxCli();
-    expect(resolved).toMatch(/@upstash[/\\]box-cli[/\\].*cli\.js$/);
-    expect(fs.existsSync(resolved ?? "")).toBe(true);
-  });
-
-  it("keeps the child on the plugin's own API, since the CLI reads a .env from the worktree", () => {
-    expect(childEnvironment({ PATH: "/bin" }, "k")).toEqual({
-      PATH: "/bin",
-      UPSTASH_BOX_API_KEY: "k",
-    });
-    expect(
-      childEnvironment({ UPSTASH_BOX_BASE_URL: "https://dev.example.test" }, "k")
-        .UPSTASH_BOX_BASE_URL,
-    ).toBe("https://dev.example.test");
-  });
-});
-
 describe("runStartPane", () => {
-  it("provisions a native box for the focused worktree, uploads it, and hands off to the REPL", async () => {
+  it("provisions a box for the focused worktree, uploads it, and hands off to the agent", async () => {
     const root = makeGitRepository();
     directories.push(root);
     const directory = temporaryDirectory();
@@ -474,11 +371,15 @@ describe("runStartPane", () => {
     const { box, calls } = fakeBox({
       id: "box-new",
       commandOutput: (command) => ({
-        stdout: command.includes("git rev-parse HEAD") ? `${BASELINE}\n` : "",
+        stdout: command.includes("git rev-parse HEAD")
+          ? `${BASELINE}\n`
+          : command.includes("TMUX_READY")
+            ? "TMUX_READY\n"
+            : "",
       }),
     });
     const client = fakeClient({ created: box, "box-new": box });
-    const { calls: spawns, spawn } = fakeSpawn();
+    let attached: AttachOptions | undefined;
     const renames: Array<[string, string]> = [];
     const output = collector();
     const code = await runStartPane({
@@ -488,36 +389,45 @@ describe("runStartPane", () => {
           focused_pane_id: "p1",
         }),
         UPSTASH_BOX_API_KEY: "box-key",
+        ANTHROPIC_API_KEY: "provider-secret",
         HERDR_PANE_ID: "pane-5",
       },
       state: { directory },
-      config: { ...DEFAULT_CONFIG, mode: "native" },
+      config: DEFAULT_CONFIG,
       client,
       ensureRunning: live,
-      spawn,
+      attach: async (target, options) => {
+        attached = options;
+        return fakeAttach(target, options);
+      },
+      bridge: async () => 0,
       rename: (paneId, title) => renames.push([paneId, title]),
       write: output.write,
     });
     expect(code).toBe(0);
-    expect(renames).toEqual([["pane-5", "Upstash Box"]]);
-    expect(spawns[0]?.args).toEqual(["connect", "box-new"]);
+    expect(renames).toEqual([["pane-5", PANE_TITLE]]);
+    expect(attached).toMatchObject({
+      harnessId: "claude-code",
+      credential: { name: "ANTHROPIC_API_KEY", value: "provider-secret" },
+    });
     expect(calls.uploads).toHaveLength(1);
+    expect(calls.commands.some((command) => command.includes("tmux"))).toBe(true);
     const mappings = Object.values(readState({ directory }).mappings);
     expect(mappings).toHaveLength(1);
     expect(mappings[0]).toMatchObject({
-      mode: "native",
       boxId: "box-new",
       localRoot: root,
       branch: "main",
       sourcePaneId: "p1",
-      lifecycleState: "ready",
       prepared: true,
       lastAppliedExportCommit: BASELINE,
     });
     const text = output.lines.join("");
     expect(text).toContain("Upload: 1 file");
-    expect(text).toContain("Ready: ");
-    expect(paneTitle("tui")).toBe("Upstash Box agent");
+    expect(text).toContain("Credential: ANTHROPIC_API_KEY from this machine, passed per session");
+    expect(text).toContain("Connecting Claude Code");
+    expect(text).not.toContain("provider-secret");
+    expect(PANE_TITLE).toBe("Upstash Box agent");
   });
 });
 
@@ -642,26 +552,6 @@ describe("confirmation pane", () => {
 
   it("deletes the box, forgets the mapping, and closes the agent pane on DELETE", async () => {
     const state = await stateWith(sampleMapping({ remotePaneId: "pane-9" }));
-    await updateAutomation((automation) => {
-      automation.schedules.push({
-        id: "schedule-1",
-        mappingId: MAPPING_ID,
-        boxId: "box-1",
-        type: "prompt",
-        cron: "0 9 * * *",
-        prompt: "check",
-        folder: "/workspace/home",
-        model: null,
-        timeout: null,
-        status: "active",
-        lastRunAt: null,
-        lastRunStatus: null,
-        totalRuns: 0,
-        totalFailures: 0,
-        createdAt: "2026-09-09T10:00:00.000Z",
-        updatedAt: "2026-09-09T10:00:00.000Z",
-      });
-    }, state);
     const { box, calls } = fakeBox();
     const closed: string[] = [];
     const deleted = await runConfirmationPane("delete", MAPPING_ID, {
@@ -676,7 +566,6 @@ describe("confirmation pane", () => {
     expect(calls.deleted).toBe(1);
     expect(closed).toEqual(["pane-9"]);
     expect(readState(state).mappings).toEqual({});
-    expect(readAutomation(state).schedules).toEqual([]);
   });
 
   it("rejects an unknown destructive action", async () => {
@@ -840,36 +729,8 @@ describe("pause, resume, snapshot", () => {
     });
   });
 
-  it("warns when an active schedule can wake the paused box", async () => {
-    const state = await stateWith(sampleMapping({ mode: "native" }));
-    const output = collector();
-    const { box } = fakeBox({
-      schedules: [
-        {
-          id: "schedule-1",
-          box_id: "box-1",
-          type: "prompt",
-          cron: "* * * * *",
-          prompt: "check",
-          status: "active",
-          total_runs: 0,
-          total_failures: 0,
-          created_at: 1_757_412_000,
-          updated_at: 1_757_412_000,
-        },
-      ],
-    });
-    await pauseMapping(MAPPING_ID, {
-      state,
-      env,
-      client: fakeClient({ "box-1": box }),
-      write: output.write,
-    });
-    expect(output.lines.join("")).toContain("active schedule can wake it");
-  });
-
   it("reports an already paused box, a missing one, and a keep-alive refusal", async () => {
-    const paused = await stateWith(sampleMapping({ mode: "native" }));
+    const paused = await stateWith(sampleMapping());
     expect(
       await pauseMapping(MAPPING_ID, {
         state: paused,
@@ -888,7 +749,7 @@ describe("pause, resume, snapshot", () => {
       }),
     ).toBe("missing");
     expect(readState(gone).mappings[MAPPING_ID]?.lifecycleState).toBe("missing");
-    const keep = await stateWith(sampleMapping({ mode: "native" }));
+    const keep = await stateWith(sampleMapping());
     await expect(
       pauseMapping(MAPPING_ID, {
         state: keep,
@@ -962,6 +823,7 @@ describe("fork and orphan deletion", () => {
     const child = mappings.find((mapping) => mapping.id !== MAPPING_ID);
     expect(child).toMatchObject({
       boxId: "box-9",
+      sourcePaneId: null,
       localRoot: "/repo",
       prepared: true,
       everAttached: true,
@@ -975,21 +837,7 @@ describe("fork and orphan deletion", () => {
     expect(output.join("")).toContain("Forked:");
   });
 
-  it("gives a native fork the same credential mode and refuses an unprepared box", async () => {
-    const state = await stateWith(
-      sampleMapping({ mode: "native", model: "openai/gpt-5", harness: "opencode" }),
-    );
-    const client = fakeClient({ "box-1": fakeBox().box, forked: fakeBox({ id: "box-9" }).box });
-    await runConfirmationPane("fork", MAPPING_ID, {
-      state,
-      env,
-      config: { ...DEFAULT_CONFIG, mode: "native" },
-      client,
-      ensureRunning: live,
-      confirm: async () => "FORK",
-      write: quiet,
-    });
-    expect(client.forks[0]?.config.agent).toEqual({ harness: "opencode", model: "openai/gpt-5" });
+  it("refuses to fork an unprepared box", async () => {
     const unprepared = await stateWith(sampleMapping({ prepared: false }));
     await expect(
       runConfirmationPane("fork", MAPPING_ID, {
@@ -1086,39 +934,6 @@ describe("third review", () => {
       lastSnapshot: { id: "snap-1" },
     });
     expect(child?.labels[1]).toMatch(/^hm:/);
-  });
-
-  it("derives a fork's credential from the mapping, not today's config", async () => {
-    const managed = await stateWith(sampleMapping({ mode: "native", credential: "managed" }));
-    const client = fakeClient({ "box-1": fakeBox().box, forked: fakeBox({ id: "box-9" }).box });
-    await runConfirmationPane("fork", MAPPING_ID, {
-      state: managed,
-      env: { ...env, ANTHROPIC_API_KEY: "local-key" },
-      config: { ...DEFAULT_CONFIG, mode: "native", nativeKey: "local" },
-      client,
-      ensureRunning: live,
-      confirm: async () => "FORK",
-      write: quiet,
-    });
-    expect(client.forks[0]?.config.agent).toEqual({
-      harness: "claude-code",
-      model: "anthropic/claude-sonnet-5",
-    });
-    const child = Object.values(readState(managed).mappings).find((m) => m.id !== MAPPING_ID);
-    expect(child?.credential).toBe("managed");
-    expect(child?.sourcePaneId).toBeNull();
-    const local = await stateWith(sampleMapping({ mode: "native", credential: "local" }));
-    await expect(
-      runConfirmationPane("fork", MAPPING_ID, {
-        state: local,
-        env,
-        config: { ...DEFAULT_CONFIG, mode: "native" },
-        client: fakeClient({ "box-1": fakeBox().box, forked: fakeBox().box }),
-        ensureRunning: live,
-        confirm: async () => "FORK",
-        write: quiet,
-      }),
-    ).rejects.toMatchObject({ code: "provider_api_key_missing" });
   });
 
   it("refuses to delete an orphan that a mapping claims or another tool owns", async () => {

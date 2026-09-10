@@ -4,16 +4,7 @@ Run a coding agent in an Upstash Box from the worktree you are looking at in [He
 
 Focus a pane inside a Git worktree, invoke **Start agent in Upstash Box**, and the plugin creates a box, uploads a filtered copy of the worktree, opens a new pane, and puts the agent in it. Close the pane and the agent keeps running. Come back with **Reconnect**, and a box that idled and paused in the meantime resumes on its own. When the agent has done something, **Apply changes** brings its edits back as a checked Git patch.
 
-## Two ways to sit in front of the agent
-
-|                       | TUI mode (default)                                                                         | Native mode                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| What runs in the pane | The real Claude Code, Codex, or OpenCode terminal UI, kept alive under tmux inside the box | The Upstash Box CLI REPL, driving the box's own agent               |
-| Credential            | Your provider API key, passed into each session and never handed to the box                | The Box managed key. Set `nativeKey` to `local` to use your own key |
-| Herdr agent detection | Real, through `HERDR_AGENT`                                                                | Not available                                                       |
-| Needs                 | A provider key on this machine                                                             | The `box` CLI on this machine                                       |
-
-Pick with `mode` in the config.
+The pane runs the real Claude Code, Codex, or OpenCode terminal UI, kept alive under tmux inside the box. Your provider credential is passed into each session and never handed to the box.
 
 ## Requirements
 
@@ -21,8 +12,8 @@ Pick with `mode` in the config.
 - Node.js 22 or newer
 - Git and tar
 - An Upstash Box API key
-- TUI mode: an API key for the model's provider (Anthropic, OpenRouter, OpenAI, or OpenCode)
-- Nothing else: the Box SDK and the `box` CLI that native mode runs are installed with the plugin
+- A credential for the model's provider: a Claude subscription token, or an Anthropic, OpenRouter, OpenAI, or OpenCode API key
+- Nothing else: the Box SDK is installed with the plugin
 
 ## Install
 
@@ -48,7 +39,7 @@ herdr plugin link "$(pwd)"
 herdr plugin action invoke setup --plugin upstash.box
 ```
 
-Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent, which mode, and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If you pick the subscription option, setup asks you to run `claude setup-token` in another terminal and paste the token it prints; it checks the token's shape before saving it. A credential that is already present can be kept or replaced, unless it comes from the environment: the environment outranks the file, so setup says to unset it there instead.
+Setup opens a popup that asks for your Upstash Box API key and checks it against the API before anything else, then asks which agent and which provider credential to use, and writes `config.json` and `secrets.json` (mode 600) for you. Keys are typed without echo, so nothing lands in the scrollback. If you pick the subscription option, setup asks you to run `claude setup-token` in another terminal and paste the token it prints; it checks the token's shape before saving it. A credential that is already present can be kept or replaced, unless it comes from the environment: the environment outranks the file, so setup says to unset it there instead.
 
 Everything setup writes can also be written by hand, as below.
 
@@ -77,17 +68,14 @@ Create `config.json` in the same directory. Every key is optional.
 
 ```json
 {
-  "mode": "tui",
   "harness": "claude-code",
   "model": "anthropic/claude-sonnet-5",
   "agentArgs": [],
-  "nativeKey": "managed",
   "runtime": "node",
   "size": "small",
   "keepAlive": false,
   "boxNamePrefix": "herdr",
   "remoteRoot": "/workspace/home/worktree",
-  "boxBin": null,
   "providerApiKeyEnv": null,
   "allowMultipleBoxes": false,
   "excludedPaths": [],
@@ -96,42 +84,31 @@ Create `config.json` in the same directory. Every key is optional.
   "maxFileBytes": 10485760,
   "maxUploadBytes": 104857600,
   "maxPatchBytes": 52428800,
-  "agentRunTimeoutMs": 600000,
-  "scheduleTimeoutMs": 600000,
-  "maxRunResultBytes": 262144,
-  "runHistoryLimit": 50,
   "previewPorts": [3000, 5173, 8000],
   "previewAuth": "basic"
 }
 ```
 
-| Setting               | Default                     | Purpose                                                                                                                                                                                                                                                                                   |
-| --------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                | `tui`                       | `tui` runs the harness terminal UI, `native` runs the Box CLI REPL.                                                                                                                                                                                                                       |
-| `harness`             | `claude-code`               | `claude-code`, `codex`, or `opencode`. Already installed in every box image.                                                                                                                                                                                                              |
-| `model`               | `anthropic/claude-sonnet-5` | A Box model id with its provider prefix. Claude Code takes `anthropic/` and `openrouter/` models. Codex needs an `openai/` model. OpenCode takes any. Incompatible pairs fail at config time.                                                                                             |
-| `agentArgs`           | `[]`                        | Extra arguments appended to the harness command in TUI mode. `["--dangerously-skip-permissions"]` lets Claude Code edit without approving each change, which is reasonable in a disposable box with a scoped key and wrong on a laptop; it is never the default for an interactive start. |
-| `nativeKey`           | `managed`                   | Native mode credential. `managed` uses the Box managed key. `local` configures your provider key on the box at creation.                                                                                                                                                                  |
-| `runtime`             | `node`                      | Box runtime image.                                                                                                                                                                                                                                                                        |
-| `size`                | `small`                     | `small`, `medium`, or `large`.                                                                                                                                                                                                                                                            |
-| `keepAlive`           | `false`                     | Keep the box running instead of letting it pause when idle.                                                                                                                                                                                                                               |
-| `boxNamePrefix`       | `herdr`                     | Prefix for generated box names.                                                                                                                                                                                                                                                           |
-| `remoteRoot`          | `/workspace/home/worktree`  | Where the worktree lands in the box. Must stay under `/workspace`. A subdirectory keeps the agent's own config directories out of the Git baseline.                                                                                                                                       |
-| `boxBin`              | `null`                      | Path to a `box` CLI for native mode. Defaults to the one installed with the plugin; `HERDR_BOX_BIN` also overrides it.                                                                                                                                                                    |
-| `providerApiKeyEnv`   | `null`                      | Name the one variable that carries the provider credential. By default the plugin tries the variables that fit the harness and model, subscription token first for Claude Code. Set this and nothing else is ever substituted.                                                            |
-| `allowMultipleBoxes`  | `false`                     | Allow more than one live box per worktree. Off by default, so a second Start points you at the existing box.                                                                                                                                                                              |
-| `excludedPaths`       | `[]`                        | Extra repository-relative paths left out of the upload.                                                                                                                                                                                                                                   |
-| `allowSensitivePaths` | `[]`                        | Exact files the safety filter would otherwise exclude.                                                                                                                                                                                                                                    |
-| `maxFiles`            | `10000`                     | Upload file count limit.                                                                                                                                                                                                                                                                  |
-| `maxFileBytes`        | `10485760`                  | Per-file upload limit, 10 MiB.                                                                                                                                                                                                                                                            |
-| `maxUploadBytes`      | `104857600`                 | Total upload limit, 100 MiB.                                                                                                                                                                                                                                                              |
-| `maxPatchBytes`       | `52428800`                  | Largest patch Apply will download from the box, 50 MiB.                                                                                                                                                                                                                                   |
-| `agentRunTimeoutMs`   | `600000`                    | Timeout for an interactive typed agent run.                                                                                                                                                                                                                                               |
-| `scheduleTimeoutMs`   | `600000`                    | Timeout applied when creating an agent schedule.                                                                                                                                                                                                                                          |
-| `maxRunResultBytes`   | `262144`                    | Maximum serialized result retained for one run; larger results are marked and truncated.                                                                                                                                                                                                  |
-| `runHistoryLimit`     | `50`                        | Persisted manual and scheduled run records retained per mapping.                                                                                                                                                                                                                          |
-| `previewPorts`        | `[3000, 5173, 8000]`        | Ports the previews pane may expose with a public URL.                                                                                                                                                                                                                                     |
-| `previewAuth`         | `basic`                     | `basic` puts basic auth on every new public URL. `none` makes the link reachable by anyone who has it.                                                                                                                                                                                    |
+| Setting               | Default                     | Purpose                                                                                                                                                                                                                                                                       |
+| --------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `harness`             | `claude-code`               | `claude-code`, `codex`, or `opencode`. Already installed in every box image.                                                                                                                                                                                                  |
+| `model`               | `anthropic/claude-sonnet-5` | A Box model id with its provider prefix. Claude Code takes `anthropic/` and `openrouter/` models. Codex needs an `openai/` model. OpenCode takes any. Incompatible pairs fail at config time.                                                                                 |
+| `agentArgs`           | `[]`                        | Extra arguments appended to the harness command. `["--dangerously-skip-permissions"]` lets Claude Code edit without approving each change, which is reasonable in a disposable box with a scoped key and wrong on a laptop; it is never the default for an interactive start. |
+| `runtime`             | `node`                      | Box runtime image.                                                                                                                                                                                                                                                            |
+| `size`                | `small`                     | `small`, `medium`, or `large`.                                                                                                                                                                                                                                                |
+| `keepAlive`           | `false`                     | Keep the box running instead of letting it pause when idle.                                                                                                                                                                                                                   |
+| `boxNamePrefix`       | `herdr`                     | Prefix for generated box names.                                                                                                                                                                                                                                               |
+| `remoteRoot`          | `/workspace/home/worktree`  | Where the worktree lands in the box. Must stay under `/workspace`. A subdirectory keeps the agent's own config directories out of the Git baseline.                                                                                                                           |
+| `providerApiKeyEnv`   | `null`                      | Name the one variable that carries the provider credential. By default the plugin tries the variables that fit the harness and model, subscription token first for Claude Code. Set this and nothing else is ever substituted.                                                |
+| `allowMultipleBoxes`  | `false`                     | Allow more than one live box per worktree. Off by default, so a second Start points you at the existing box.                                                                                                                                                                  |
+| `excludedPaths`       | `[]`                        | Extra repository-relative paths left out of the upload.                                                                                                                                                                                                                       |
+| `allowSensitivePaths` | `[]`                        | Exact files the safety filter would otherwise exclude.                                                                                                                                                                                                                        |
+| `maxFiles`            | `10000`                     | Upload file count limit.                                                                                                                                                                                                                                                      |
+| `maxFileBytes`        | `10485760`                  | Per-file upload limit, 10 MiB.                                                                                                                                                                                                                                                |
+| `maxUploadBytes`      | `104857600`                 | Total upload limit, 100 MiB.                                                                                                                                                                                                                                                  |
+| `maxPatchBytes`       | `52428800`                  | Largest patch Apply will download from the box, 50 MiB.                                                                                                                                                                                                                       |
+| `previewPorts`        | `[3000, 5173, 8000]`        | Ports the previews pane may expose with a public URL.                                                                                                                                                                                                                         |
+| `previewAuth`         | `basic`                     | `basic` puts basic auth on every new public URL. `none` makes the link reachable by anyone who has it.                                                                                                                                                                        |
 
 Unknown keys and invalid values stop the action with a named error.
 
@@ -154,9 +131,6 @@ herdr plugin action invoke snapshot --plugin upstash.box
 herdr plugin action invoke fork --plugin upstash.box
 herdr plugin action invoke previews --plugin upstash.box
 herdr plugin action invoke dashboard --plugin upstash.box
-herdr plugin action invoke run-task --plugin upstash.box
-herdr plugin action invoke run-results --plugin upstash.box
-herdr plugin action invoke schedules --plugin upstash.box
 ```
 
 A binding for Start:
@@ -169,23 +143,19 @@ command = "herdr plugin action invoke start-agent --plugin upstash.box"
 
 **Start claude**, **Start codex**, and **Start opencode** are Start on a named harness for one launch, meant for key bindings: `config.json` is not touched, the configured model is kept when that harness can use it and otherwise the harness default applies, and `agentArgs` and `providerApiKeyEnv` are dropped because they were written for the configured harness. Herdr cannot pass arguments to an action, which is why these are three verbs rather than one flag. They are still one box per worktree: a second Start on a worktree that already has a live box is refused whichever verb you use. On reconnect, a `providerApiKeyEnv` written for the configured harness and model is ignored for a mapping it does not fit, whether a different harness or a different provider: a box created on an `openrouter/` model keeps its OpenRouter key even after setup moved the config to a subscription token, because the model is recorded per box.
 
-**Start** checks the worktree, refuses if a box already exists for it, then splits the focused pane, creates a box named after the worktree, uploads the filtered tree, records a Git baseline in the box, and opens the agent. **Reconnect** attaches again from any pane the mapping knows, resuming a paused box first and finishing any preparation a crash interrupted. If the pane Start was invoked from no longer exists, which is the case after any Herdr restart, Reconnect anchors to the focused pane instead and remembers it. **Apply changes** exports what changed in the box since the last apply as a binary Git patch, checks it against the worktree, shows the summary, and applies it after you say yes. **Stop** ends the agent session and keeps the box. **Delete** asks you to type `DELETE` in a popup, then removes the box and its mapping. **Info** shows the box status, agent session, paths, and export markers. In native mode the REPL opens in the box home; the worktree is in `worktree` there.
+**Start** checks the worktree, refuses if a box already exists for it, then splits the focused pane, creates a box named after the worktree, uploads the filtered tree, records a Git baseline in the box, and opens the agent. **Reconnect** attaches again from any pane the mapping knows, resuming a paused box first and finishing any preparation a crash interrupted. If the pane Start was invoked from no longer exists, which is the case after any Herdr restart, Reconnect anchors to the focused pane instead and remembers it. **Apply changes** exports what changed in the box since the last apply as a binary Git patch, checks it against the worktree, shows the summary, and applies it after you say yes. **Stop** ends the agent session and keeps the box. **Delete** asks you to type `DELETE` in a popup, then removes the box and its mapping. **Info** shows the box status, agent session, paths, and export markers.
 
-**Pause** ends the agent session and pauses the box; **Resume** brings it back without opening the agent. An active schedule can wake a paused box at its next cron and incur compute and model costs. **Snapshot** saves the box state under a timestamped name. **Fork** asks you to type `FORK`, snapshots the box, and starts a second box from that snapshot for the same worktree, with its own mapping, so two directions can run from the same point. **Previews** exposes one of the configured ports with a public URL, with basic auth by default, and removes it again. **Dashboard** opens a zoomed board of every box the plugin owns.
-
-**Run task**, **Run results**, and **Schedules** are server-side automation and only work with native-mode mappings. Actions reject TUI mappings before opening a pane. Run task asks for a one-line prompt and one-line JSON Schema, converts the schema with Zod, runs from the mapped remote working directory, and persists the typed result and cost. Press Ctrl-C while a task runs to cancel it; one typed run per box at a time, and a typed run is never retried automatically, because the SDK would treat the cancelled stream as a failure and start a fresh billed run. Run results syncs scheduled Box run records, marks any run whose pane never came back as failed, and shows recent manual and scheduled history. Automation history lives in a separate private, atomically-written `automation.json` with mode 600. At the default limits it can hold about 12 MB of agent output; lower `runHistoryLimit` or `maxRunResultBytes` if that matters.
-
-Schedules use textual commands in the popup: `c <cron> | <prompt>`, `p <id>`, `r <id>`, and `d <id>`. They work on normal idle-pausing boxes: the scheduler wakes a paused box when a cron fires. Scheduled agents can therefore incur model and compute costs even while Herdr is closed. Their output is stored as plain untyped output because the SDK schedule API does not accept a `responseSchema`.
+**Pause** ends the agent session and pauses the box; **Resume** brings it back without opening the agent. **Snapshot** saves the box state under a timestamped name. **Fork** asks you to type `FORK`, snapshots the box, and starts a second box from that snapshot for the same worktree, with its own mapping, so two directions can run from the same point. **Previews** exposes one of the configured ports with a public URL, with basic auth by default, and removes it again. **Dashboard** opens a zoomed board of every box the plugin owns.
 
 Herdr shows one popup at a time. If a verb reports that another popup is already open, close that popup and run it again. A popup left unattended closes itself after two minutes so it cannot block the other verbs.
 
 ## Dashboard
 
-The board lists every mapping newest first, with worktree and branch, box name, agent, mode, local lifecycle, live remote status, and age, and refreshes the remote column every few seconds. Boxes that carry the plugin label but have no mapping appear as orphans and can only be deleted. Every verb is one key away and opens the same pane the matching action would:
+The board lists every mapping newest first, with worktree and branch, box name, agent, local lifecycle, live remote status, and age, and refreshes the remote column every few seconds. Boxes that carry the plugin label but have no mapping appear as orphans and can only be deleted. Every verb is one key away and opens the same pane the matching action would:
 
 ```
 [j/k] Select  [enter/r] Reconnect  [a] Apply  [i] Info  [s] Stop  [p] Pause  [u] Resume
-[n] Snapshot  [f] Fork  [v] Previews  [t] Run task  [h] Results  [c] Schedules
+[n] Snapshot  [f] Fork  [v] Previews
 [d] Delete  [R] Refresh  [q] Close
 ```
 
@@ -215,14 +185,13 @@ Decisions with a rationale worth keeping live in [docs/adr](docs/adr/README.md).
 
 - One mapping connects a Start invocation, a local worktree, a Herdr pane, and a box. When more than one box matches a pane or a worktree, actions refuse to guess and point you at the dashboard; a fork always leaves two, so pick boxes there afterwards. Mappings live in the plugin state directory. Boxes carry both a `herdr` label and a `hm:<mapping id>` label, so a mapping can find its box again even if the state file is lost, and recovery refuses to guess when more than one box matches. The dashboard only calls a box an orphan when it carries both labels and no mapping claims it by id, label, or name, and deletion re-checks that against fresh state.
 - Attaching Claude Code seeds its config in the box first, marking onboarding complete and the worktree trusted. A fresh box otherwise opens on a theme picker, then security notes, then a trust prompt whose default is to exit.
-- In TUI mode the agent runs inside a tmux session on a tmux server private to the mapping. A Box exec session owns its process, so without tmux closing the pane would kill the agent. tmux is installed on first launch if the image lacks it.
-- Provider keys are passed as environment of the exec session only. They never reach the box environment, its filesystem, or a snapshot, and they are never part of box creation in TUI mode.
+- The agent runs inside a tmux session on a tmux server private to the mapping. A Box exec session owns its process, so without tmux closing the pane would kill the agent. tmux is installed on first launch if the image lacks it.
+- Provider keys are passed as environment of the exec session only. They never reach the box environment, its filesystem, or a snapshot, and they are never part of box creation.
 - Every pane claims the mapping with a connection token. Stop, delete, and reconnect clear or replace it, so a pane that exits later cannot overwrite what they recorded.
-- Every interactive mutating verb runs under a per-mapping lock, so stop, pause, resume, snapshot, apply, delete, fork, and schedule changes cannot interleave and write each other's outcome. A second one is refused rather than queued. A typed run holds the lock only while it starts and while it records its result, never during the model call, so stop, pause, and delete stay available while it runs, and Ctrl-C in its pane cancels it through the box's run id. A scheduled run is independent background work, so pause it before taking a deliberately stable snapshot or patch.
-- A fork records its mapping before anything billable exists, carries the credential mode of the box it came from rather than today's config, and gets no source pane.
+- Every interactive mutating verb runs under a per-mapping lock, so stop, pause, resume, snapshot, apply, delete, and fork cannot interleave and write each other's outcome. A second one is refused rather than queued.
+- A fork records its mapping before anything billable exists, carries no credential of its own, and gets no source pane.
 - Applying a patch also refuses added content that looks like a credential, not just sensitive paths.
 - Idle boxes pause, and tmux does not survive a pause. Reconnect resumes the box and relaunches the harness with its continue flag, so the conversation carries on from disk.
-- Server-side schedules wake idle or paused native-mode boxes at their next cron. The dashboard's `SCHED` column shows locally synchronized active and paused counts; opening Schedules or Results refreshes those records from Box.
 - Before the archive is built, every reviewed file is copied into a private staging tree through a no-follow descriptor and checked against the size and hash from the preview. Anything that changed in between stops the start.
 - The worktree travels as one tar archive, unpacks into a sibling directory in the box, and is swapped into place only after extraction succeeds. A fresh Git repository there records the upload as a baseline commit.
 - Apply snapshots the box tree as a new commit, diffs it against the last applied commit, and downloads the patch to disk in bounded chunks, refusing anything above `maxPatchBytes`. The bytes are bound to that commit by a checksum computed in the box.
@@ -230,7 +199,7 @@ Decisions with a rationale worth keeping live in [docs/adr](docs/adr/README.md).
 
 ## Status
 
-Shipped: setup, the lifecycle and both panes, worktree upload and patch-back, the dashboard with pause, resume, previews, snapshots and fork, per-harness starts, and server-side typed runs and schedules. Each piece was verified against real boxes and driven end to end inside a live Herdr session, and the setup popup was driven in a real terminal. Decisions with a rationale worth keeping are in [docs/adr](docs/adr/README.md).
+Shipped: setup, the lifecycle and the agent pane, worktree upload and patch-back, the dashboard with pause, resume, previews, snapshots and fork, and per-harness starts. Each piece was verified against real boxes and driven end to end inside a live Herdr session, and the setup popup was driven in a real terminal. Decisions with a rationale worth keeping are in [docs/adr](docs/adr/README.md).
 
 Requires `@upstash/box` 0.7.5 or newer, which the plugin installs itself.
 
@@ -239,8 +208,6 @@ Requires `@upstash/box` 0.7.5 or newer, which the plugin installs itself.
 **The upload is too large.** Start stops before creating a box and names the total, the file count, the heaviest top-level directories, and the five largest eligible files. The directories are usually the answer: on a docs repository the five largest files were 1 to 3 MB each while 110 MB sat in `img/` across 438 files. The total is measured before file contents are scanned, so a large file the secret filter would have dropped still counts. Add the heavy paths to `excludedPaths`. Raising `maxUploadBytes` past 100 MB does not help, because Box rejects larger uploads.
 
 **Claude Code shows `API Usage Billing` instead of your plan.** That session is not on the subscription token. The model is recorded per box, so a box created on an `openrouter/` model stays on OpenRouter no matter what setup wrote later. Delete it and start a new one; the start pane names the credential before it creates anything.
-
-**Native mode connects to the wrong API.** The `box` CLI reads a `.env` from the directory it runs in, which is your worktree. If that file sets `UPSTASH_BOX_BASE_URL`, the REPL will use it while the rest of the plugin uses its own. Unset it, or set the same value in the environment Herdr runs in.
 
 **A verb says another popup is already open.** Herdr shows one popup at a time. Close the open one and try again; an unattended popup closes itself after two minutes.
 

@@ -4,7 +4,6 @@ import { mappingLabel } from "./box.js";
 import { BOX_LABEL } from "./constants.js";
 import { getHarness } from "./harness.js";
 import type { Mapping, PluginState } from "./state.js";
-import { emptyAutomation, schedulesForMapping, type AutomationState } from "./automation.js";
 
 export function formatAge(iso: string, now = Date.now()): string {
   const elapsed = Math.max(0, now - Date.parse(iso));
@@ -45,7 +44,6 @@ export interface MappingRow {
   mapping: Mapping;
   remote: string;
   createdAt: string;
-  schedules: string;
 }
 
 export interface OrphanRow {
@@ -59,19 +57,7 @@ export interface OrphanRow {
 
 export type DashboardRow = MappingRow | OrphanRow;
 
-export function scheduleIndicator(automation: AutomationState, mappingId: string): string {
-  const schedules = schedulesForMapping(automation, mappingId);
-  const active = schedules.filter((schedule) => schedule.status === "active").length;
-  const paused = schedules.filter((schedule) => schedule.status === "paused").length;
-  if (active === 0 && paused === 0) return "-";
-  return `${active}a${paused ? `/${paused}p` : ""}`;
-}
-
-export function buildRows(
-  state: PluginState,
-  listing: BoxData[] | null,
-  automation: AutomationState = emptyAutomation(),
-): DashboardRow[] {
+export function buildRows(state: PluginState, listing: BoxData[] | null): DashboardRow[] {
   const mappings = Object.values(state.mappings).sort((a, b) =>
     b.createdAt.localeCompare(a.createdAt),
   );
@@ -95,7 +81,6 @@ export function buildRows(
       mapping,
       remote,
       createdAt: mapping.createdAt,
-      schedules: scheduleIndicator(automation, mapping.id),
     };
   });
   for (const box of listing ?? []) {
@@ -124,9 +109,6 @@ export type DashboardAction =
   | "snapshot"
   | "fork"
   | "previews"
-  | "run-task"
-  | "run-results"
-  | "schedules"
   | "delete"
   | "refresh"
   | "quit";
@@ -147,9 +129,6 @@ export const KEY_ACTIONS: Readonly<Record<string, DashboardAction>> = Object.fre
   n: "snapshot",
   f: "fork",
   v: "previews",
-  t: "run-task",
-  h: "run-results",
-  c: "schedules",
   d: "delete",
   R: "refresh",
   q: "quit",
@@ -183,7 +162,7 @@ export function splitKeys(chunk: string, pending = ""): { keys: string[]; pendin
 
 export const KEY_HELP =
   "[j/k] Select  [enter/r] Reconnect  [a] Apply  [i] Info  [s] Stop  [p] Pause  [u] Resume\n" +
-  "[n] Snapshot  [f] Fork  [v] Previews  [t] Run task  [h] Results  [c] Schedules\n" +
+  "[n] Snapshot  [f] Fork  [v] Previews\n" +
   "[d] Delete  [R] Refresh  [q] Close";
 
 export function truncate(value: unknown, width: number): string {
@@ -202,14 +181,14 @@ export interface RenderMeta {
 export function renderDashboard(rows: DashboardRow[], selected: number, meta: RenderMeta): string {
   const width = Math.max(80, meta.width);
   const treeWidth = Math.min(30, Math.max(18, Math.floor(width * 0.24)));
-  const boxWidth = Math.min(40, Math.max(22, width - treeWidth - 62));
+  const boxWidth = Math.min(40, Math.max(22, width - treeWidth - 45));
   const now = meta.now ?? Date.now();
   const lines: string[] = [];
   lines.push(
     `Upstash Box  ${meta.syncing ? "syncing" : "live"}  ${rows.length} ${rows.length === 1 ? "box" : "boxes"}`,
     "",
-    `   ${truncate("WORKTREE / BRANCH", treeWidth)}  ${truncate("BOX", boxWidth)}  ${truncate("AGENT", 11)}  ${truncate("MODE", 6)}  ${truncate("LOCAL", 11)}  ${truncate("REMOTE", 13)}  ${truncate("SCHED", 7)}  AGE`,
-    `   ${"-".repeat(treeWidth)}  ${"-".repeat(boxWidth)}  ${"-".repeat(11)}  ${"-".repeat(6)}  ${"-".repeat(11)}  ${"-".repeat(13)}  ${"-".repeat(7)}  ---`,
+    `   ${truncate("WORKTREE / BRANCH", treeWidth)}  ${truncate("BOX", boxWidth)}  ${truncate("AGENT", 11)}  ${truncate("LOCAL", 11)}  ${truncate("REMOTE", 13)}  AGE`,
+    `   ${"-".repeat(treeWidth)}  ${"-".repeat(boxWidth)}  ${"-".repeat(11)}  ${"-".repeat(11)}  ${"-".repeat(13)}  ---`,
   );
   if (rows.length === 0) {
     lines.push("   No boxes. Start one from a Git worktree with the start-agent action.");
@@ -220,11 +199,11 @@ export function renderDashboard(rows: DashboardRow[], selected: number, meta: Re
       const { mapping } = row;
       const tree = `${path.basename(mapping.localRoot)} / ${mapping.branch ?? "detached"}`;
       lines.push(
-        `${marker}  ${truncate(tree, treeWidth)}  ${truncate(mapping.boxName, boxWidth)}  ${truncate(getHarness(mapping.harness).title, 11)}  ${truncate(mapping.mode, 6)}  ${truncate(mapping.lifecycleState, 11)}  ${truncate(row.remote, 13)}  ${truncate(row.schedules, 7)}  ${formatAge(row.createdAt, now)}`,
+        `${marker}  ${truncate(tree, treeWidth)}  ${truncate(mapping.boxName, boxWidth)}  ${truncate(getHarness(mapping.harness).title, 11)}  ${truncate(mapping.lifecycleState, 11)}  ${truncate(row.remote, 13)}  ${formatAge(row.createdAt, now)}`,
       );
     } else {
       lines.push(
-        `${marker}  ${truncate("(no mapping)", treeWidth)}  ${truncate(row.name, boxWidth)}  ${truncate("-", 11)}  ${truncate("-", 6)}  ${truncate("orphan", 11)}  ${truncate(row.remote, 13)}  ${truncate("-", 7)}  ${formatAge(row.createdAt, now)}`,
+        `${marker}  ${truncate("(no mapping)", treeWidth)}  ${truncate(row.name, boxWidth)}  ${truncate("-", 11)}  ${truncate("orphan", 11)}  ${truncate(row.remote, 13)}  ${formatAge(row.createdAt, now)}`,
       );
     }
   });
@@ -236,9 +215,8 @@ export function renderDashboard(rows: DashboardRow[], selected: number, meta: Re
       "Selected",
       `  Worktree: ${mapping.localRoot}${mapping.relativeCwd === "." ? "" : ` (${mapping.relativeCwd})`}`,
       `  Box:      ${mapping.boxName}${mapping.boxId ? ` (${mapping.boxId})` : ""}`,
-      `  Agent:    ${getHarness(mapping.harness).title}, ${mapping.model}, ${mapping.mode} mode, ${mapping.credential} credential`,
+      `  Agent:    ${getHarness(mapping.harness).title}, ${mapping.model}`,
       `  State:    local ${mapping.lifecycleState} / remote ${current.remote}${mapping.prepared ? "" : " / not prepared"}`,
-      `  Schedules: ${current.schedules}`,
       `  Export:   ${mapping.lastAppliedExportCommit ? mapping.lastAppliedExportCommit.slice(0, 12) : "no baseline"}${mapping.lastSnapshot ? `   Snapshot: ${mapping.lastSnapshot.name}` : ""}`,
       ...(mapping.lastError ? [`  Error:    ${truncate(mapping.lastError, width - 12)}`] : []),
     );

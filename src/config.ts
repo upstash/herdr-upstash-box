@@ -3,12 +3,8 @@ import path from "node:path";
 import {
   DEFAULT_REMOTE_ROOT,
   HARNESS_IDS,
-  MODES,
-  NATIVE_KEYS,
   PREVIEW_AUTH,
   type HarnessId,
-  type Mode,
-  type NativeKey,
   type PreviewAuth,
 } from "./constants.js";
 import {
@@ -35,17 +31,14 @@ export const RUNTIMES = [
 export const SIZES = ["small", "medium", "large"] as const;
 
 export interface PluginConfig {
-  mode: Mode;
   harness: HarnessId;
   model: string;
   agentArgs: string[];
-  nativeKey: NativeKey;
   runtime: (typeof RUNTIMES)[number];
   size: (typeof SIZES)[number];
   keepAlive: boolean;
   boxNamePrefix: string;
   remoteRoot: string;
-  boxBin: string | null;
   providerApiKeyEnv: string | null;
   allowMultipleBoxes: boolean;
   excludedPaths: string[];
@@ -54,26 +47,19 @@ export interface PluginConfig {
   maxFileBytes: number;
   maxUploadBytes: number;
   maxPatchBytes: number;
-  agentRunTimeoutMs: number;
-  scheduleTimeoutMs: number;
-  maxRunResultBytes: number;
-  runHistoryLimit: number;
   previewPorts: number[];
   previewAuth: PreviewAuth;
 }
 
 export const DEFAULT_CONFIG: Readonly<PluginConfig> = Object.freeze({
-  mode: "tui",
   harness: "claude-code",
   model: "anthropic/claude-sonnet-5",
   agentArgs: [],
-  nativeKey: "managed",
   runtime: "node",
   size: "small",
   keepAlive: false,
   boxNamePrefix: "herdr",
   remoteRoot: DEFAULT_REMOTE_ROOT,
-  boxBin: null,
   providerApiKeyEnv: null,
   allowMultipleBoxes: false,
   excludedPaths: [],
@@ -82,10 +68,6 @@ export const DEFAULT_CONFIG: Readonly<PluginConfig> = Object.freeze({
   maxFileBytes: 10 * 1024 * 1024,
   maxUploadBytes: 100 * 1024 * 1024,
   maxPatchBytes: 50 * 1024 * 1024,
-  agentRunTimeoutMs: 600_000,
-  scheduleTimeoutMs: 600_000,
-  maxRunResultBytes: 262_144,
-  runHistoryLimit: 50,
   previewPorts: [3000, 5173, 8000],
   previewAuth: "basic",
 });
@@ -184,17 +166,14 @@ export function validateConfig(candidate: unknown): PluginConfig {
   if (unknown.length > 0) invalid(`Unknown config keys: ${unknown.sort().join(", ")}.`);
   const merged: Record<string, unknown> = { ...DEFAULT_CONFIG, ...record };
   const config: PluginConfig = {
-    mode: oneOf(merged.mode, MODES, "mode"),
     harness: oneOf(merged.harness, HARNESS_IDS, "harness"),
     model: requiredString(merged.model, "model"),
     agentArgs: stringArray(merged.agentArgs, "agentArgs"),
-    nativeKey: oneOf(merged.nativeKey, NATIVE_KEYS, "nativeKey"),
     runtime: oneOf(merged.runtime, RUNTIMES, "runtime"),
     size: oneOf(merged.size, SIZES, "size"),
     keepAlive: bool(merged.keepAlive, "keepAlive"),
     boxNamePrefix: requiredString(merged.boxNamePrefix, "boxNamePrefix"),
     remoteRoot: requiredString(merged.remoteRoot, "remoteRoot"),
-    boxBin: nullableString(merged.boxBin, "boxBin"),
     providerApiKeyEnv: nullableString(merged.providerApiKeyEnv, "providerApiKeyEnv"),
     allowMultipleBoxes: bool(merged.allowMultipleBoxes, "allowMultipleBoxes"),
     excludedPaths: repositoryPaths(merged.excludedPaths, "excludedPaths", true),
@@ -203,10 +182,6 @@ export function validateConfig(candidate: unknown): PluginConfig {
     maxFileBytes: positiveInteger(merged.maxFileBytes, "maxFileBytes"),
     maxUploadBytes: positiveInteger(merged.maxUploadBytes, "maxUploadBytes"),
     maxPatchBytes: positiveInteger(merged.maxPatchBytes, "maxPatchBytes"),
-    agentRunTimeoutMs: positiveInteger(merged.agentRunTimeoutMs, "agentRunTimeoutMs"),
-    scheduleTimeoutMs: positiveInteger(merged.scheduleTimeoutMs, "scheduleTimeoutMs"),
-    maxRunResultBytes: positiveInteger(merged.maxRunResultBytes, "maxRunResultBytes"),
-    runHistoryLimit: positiveInteger(merged.runHistoryLimit, "runHistoryLimit"),
     previewPorts: ports(merged.previewPorts, "previewPorts"),
     previewAuth: oneOf(merged.previewAuth, PREVIEW_AUTH, "previewAuth"),
   };
