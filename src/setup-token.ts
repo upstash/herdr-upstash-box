@@ -69,7 +69,11 @@ export class TokenFilter {
   // Ends the wait: whatever is in progress is treated as complete and everything pending released.
   flush(): string {
     let output = "";
-    if (this.secret !== null) output += this.settle(this.secret);
+    if (this.secret !== null) {
+      const secret = this.secret;
+      this.secret = null;
+      output += this.settle(secret);
+    }
     if (this.held !== null) {
       const line = this.pending;
       this.pending = "";
@@ -188,7 +192,10 @@ export function captureSetupToken(options: CaptureOptions): Promise<string | nul
       if (!token) options.write("\nNo token came back in time.\n");
       settle(token);
     }, options.timeoutMs ?? CAPTURE_TIMEOUT_MS);
+    // Once settled, nothing more from the command is shown: a token tail that arrives after a stump
+    // was accepted is dropped, and the stump then fails verification instead.
     const onData = (filter: TokenFilter) => (chunk: Buffer | string) => {
+      if (settled) return;
       options.write(filter.feed(chunk.toString()));
       finishIfCaptured();
       clearTimeout(hold);
@@ -203,6 +210,7 @@ export function captureSetupToken(options: CaptureOptions): Promise<string | nul
     child.stderr?.on("data", onData(err));
     child.on("error", () => settle(null));
     child.on("close", () => {
+      if (settled) return;
       options.write(`${out.flush()}${err.flush()}`);
       settle(captured());
     });

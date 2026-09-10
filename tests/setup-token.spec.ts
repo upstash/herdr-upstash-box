@@ -91,6 +91,14 @@ describe("TokenFilter, when the terminal wrapped the token", () => {
     expect(filter.token).toBe(TOKEN);
   });
 
+  it("flushes a token in progress once, not twice", () => {
+    const filter = new TokenFilter();
+    filter.feed(`token: ${TOKEN}`);
+    expect(filter.flush()).toBe(CAPTURED_MARKER);
+    expect(filter.flush()).toBe("");
+    expect(filter.tokens).toEqual([TOKEN]);
+  });
+
   it("stops accumulating at 4096 characters", () => {
     const filter = new TokenFilter();
     const huge = `sk-ant-oat01-${"x".repeat(5000)}`;
@@ -226,6 +234,28 @@ describe("captureSetupToken", () => {
     // No line break after the token, so the filter is still holding it when the clock runs out.
     child.stdout.write(`token: ${TOKEN}`);
     await expect(pending).resolves.toBe(TOKEN);
+  });
+
+  it("shows nothing that arrives after it has settled", async () => {
+    const child = fakeChild();
+    const shown: string[] = [];
+    const pending = captureSetupToken({
+      write: (chunk) => void shown.push(chunk),
+      spawnImpl: () => child as unknown as ChildProcess,
+      killTree: noKill,
+      timeoutMs: 20,
+    });
+    // A stump with no trailing line break: the timeout accepts it as the token.
+    child.stdout.write(TOKEN.slice(0, 79));
+    await expect(pending).resolves.toBe(TOKEN.slice(0, 79));
+    // The tail arrives late, as a slow second frame would; it must not be printed.
+    child.stdout.write(`\r\n${TOKEN.slice(79)}\r\nStore it.\r\n`);
+    child.emit("close", 0);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const text = shown.join("");
+    expect(text).not.toContain(TOKEN.slice(79));
+    expect(text).not.toContain("Store it");
+    expect(text.split(CAPTURED_MARKER)).toHaveLength(2);
   });
 
   it("returns null on Windows, where script is not available", async () => {
