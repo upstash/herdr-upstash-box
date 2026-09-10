@@ -1,5 +1,10 @@
-import { loadConfig } from "../config.js";
-import { PLUGIN_NAME, type LifecycleState } from "../constants.js";
+import { loadConfig, overrideHarness } from "../config.js";
+import {
+  HARNESS_OVERRIDE_ENV,
+  PLUGIN_NAME,
+  type HarnessId,
+  type LifecycleState,
+} from "../constants.js";
 import { renamePane } from "../herdr.js";
 import { formatBytes } from "../manifest.js";
 import { clearScreen, sourceContext, stdoutWriter } from "../pane-runtime.js";
@@ -19,7 +24,9 @@ export async function runStartPane(deps: StartPaneDeps = {}): Promise<number> {
   const env = deps.env ?? process.env;
   const write = deps.write ?? stdoutWriter;
   const context = sourceContext(env);
-  const config = deps.config ?? loadConfig({ env });
+  const configured = deps.config ?? loadConfig({ env });
+  const override = env[HARNESS_OVERRIDE_ENV];
+  const config = override ? overrideHarness(configured, override as HarnessId) : configured;
   const prepared = prepareStart(context, { config, env });
   clearScreen(write);
   write(`Start in ${PLUGIN_NAME}\n\n${describeStart(prepared)}\n\nCreating the box...\n`);

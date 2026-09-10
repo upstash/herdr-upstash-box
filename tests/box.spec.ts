@@ -35,6 +35,27 @@ describe("keys", () => {
     ).toEqual({ name: "OPENROUTER_API_KEY", value: "or" });
   });
 
+  it("prefers a Claude subscription token over an Anthropic key, for Claude Code only", () => {
+    const env = { CLAUDE_CODE_OAUTH_TOKEN: "t", ANTHROPIC_API_KEY: "an" };
+    expect(providerApiKey(DEFAULT_CONFIG, { env, secrets: {} })).toEqual({
+      name: "CLAUDE_CODE_OAUTH_TOKEN",
+      value: "t",
+    });
+    expect(
+      providerApiKey({ ...DEFAULT_CONFIG, harness: "opencode" }, { env, secrets: {} }),
+    ).toEqual({
+      name: "ANTHROPIC_API_KEY",
+      value: "an",
+    });
+  });
+
+  it("never substitutes another variable for an explicit providerApiKeyEnv", () => {
+    const env = { CLAUDE_CODE_OAUTH_TOKEN: "t", ANTHROPIC_API_KEY: "an" };
+    const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
+    expect(providerApiKey(config, { env, secrets: {} })).toBeNull();
+    expect(() => requireProviderApiKey(config, { env, secrets: {} })).toThrow(/needs MY_KEY/);
+  });
+
   it("lets config name the variable and explains what each mode needs", () => {
     const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
     expect(providerApiKey(config, { env: { MY_KEY: "v" }, secrets: {} })?.value).toBe("v");

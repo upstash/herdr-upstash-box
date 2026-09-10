@@ -105,7 +105,12 @@ export async function runAgentPane(mappingId: string, deps: AgentPaneDeps = {}):
   }
   const config = deps.config ?? loadConfig({ env });
   const key = requireProviderApiKey(
-    { providerApiKeyEnv: config.providerApiKeyEnv, mode: "tui", model: initial.model },
+    {
+      providerApiKeyEnv: config.providerApiKeyEnv,
+      mode: "tui",
+      model: initial.model,
+      harness: initial.harness,
+    },
     { env },
   );
   const connection = await claimConnection(mappingId, {
@@ -135,7 +140,7 @@ export async function runAgentPane(mappingId: string, deps: AgentPaneDeps = {}):
     attached = await (deps.attach ?? attachSession)(box, {
       harnessId: mapping.harness,
       model: mapping.model,
-      apiKey: key.value,
+      credential: key,
       cwd: remoteWorkingDirectory(mapping),
       mappingId,
       resume: mapping.everAttached,

@@ -6,6 +6,7 @@ import {
   DEFAULT_CONFIG,
   loadConfig,
   loadSecrets,
+  overrideHarness,
   resolveSecret,
   validateConfig,
 } from "../src/config.js";
@@ -153,5 +154,29 @@ describe("secrets", () => {
     );
     expect(resolveSecret("ANTHROPIC_API_KEY", { env: {}, secrets })).toBe("file");
     expect(resolveSecret("OPENAI_API_KEY", { env: {}, secrets })).toBeUndefined();
+  });
+});
+
+describe("overrideHarness", () => {
+  it("keeps a model the harness supports and drops harness-specific settings", () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      model: "openrouter/anthropic/claude-sonnet-5",
+      agentArgs: ["--dangerously-skip-permissions"],
+      providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN",
+    };
+    expect(overrideHarness(config, "claude-code")).toBe(config);
+    expect(overrideHarness(config, "opencode")).toMatchObject({
+      harness: "opencode",
+      model: "openrouter/anthropic/claude-sonnet-5",
+      agentArgs: [],
+      providerApiKeyEnv: null,
+    });
+    expect(overrideHarness(config, "codex")).toMatchObject({
+      harness: "codex",
+      model: "openai/gpt-5.6",
+      agentArgs: [],
+      providerApiKeyEnv: null,
+    });
   });
 });

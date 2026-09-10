@@ -117,7 +117,7 @@ describe("runAgentPane", () => {
     expect(attachOptions).toMatchObject({
       harnessId: "claude-code",
       model: "anthropic/claude-sonnet-5",
-      apiKey: "provider-secret",
+      credential: { name: "ANTHROPIC_API_KEY", value: "provider-secret" },
       cwd: "/workspace/home",
       resume: true,
       rows: 50,

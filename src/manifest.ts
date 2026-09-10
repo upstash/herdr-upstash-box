@@ -156,7 +156,7 @@ export function buildUploadManifest(root: string, config: ManifestConfig): Uploa
   }
   const files: ManifestFile[] = [];
   const excluded: ExcludedFile[] = [];
-  let totalBytes = 0;
+  const eligible: Array<{ relativePath: string; absolutePath: string; stat: fs.Stats }> = [];
   for (const relativePath of candidates) {
     const pathReason = pathExclusionReason(relativePath, config);
     if (pathReason) {
@@ -182,9 +182,18 @@ export function buildUploadManifest(root: string, config: ManifestConfig): Uploa
     if (stat.size > config.maxFileBytes) {
       throw new PluginError(
         "upload_file_too_large",
-        `${relativePath} is ${stat.size} bytes; the per-file limit is ${config.maxFileBytes}.`,
+        `${relativePath} is ${formatBytes(stat.size)}; the per-file limit is ${formatBytes(config.maxFileBytes)}.`,
       );
     }
+    eligible.push({ relativePath, absolutePath, stat });
+  }
+  // Sized from stat before anything is read, so an oversized tree fails fast and names its weight.
+  assertUploadFits(
+    eligible.map((entry) => ({ path: entry.relativePath, size: entry.stat.size })),
+    config.maxUploadBytes,
+  );
+  let totalBytes = 0;
+  for (const { relativePath, absolutePath, stat } of eligible) {
     const buffer = fs.readFileSync(absolutePath);
     const contentReason = config.allowSensitivePaths.includes(relativePath)
       ? null
@@ -194,12 +203,6 @@ export function buildUploadManifest(root: string, config: ManifestConfig): Uploa
       continue;
     }
     totalBytes += buffer.byteLength;
-    if (totalBytes > config.maxUploadBytes) {
-      throw new PluginError(
-        "upload_size_limit",
-        `The filtered upload exceeds ${config.maxUploadBytes} bytes.`,
-      );
-    }
     files.push({
       path: relativePath,
       absolutePath,
@@ -209,6 +212,30 @@ export function buildUploadManifest(root: string, config: ManifestConfig): Uploa
     });
   }
   return { schemaVersion: 1, root, files, excluded, totalBytes, digest: manifestDigest(files) };
+}
+
+export const LARGEST_FILES_SHOWN = 5;
+
+export function assertUploadFits(
+  sized: ReadonlyArray<{ path: string; size: number }>,
+  maxUploadBytes: number,
+): void {
+  const total = sized.reduce((sum, entry) => sum + entry.size, 0);
+  if (total <= maxUploadBytes) return;
+  const largest = [...sized]
+    .sort((a, b) => b.size - a.size || a.path.localeCompare(b.path))
+    .slice(0, LARGEST_FILES_SHOWN)
+    .map((entry) => `  ${entry.path} (${formatBytes(entry.size)})`);
+  throw new PluginError(
+    "upload_size_limit",
+    [
+      `The filtered upload is ${formatBytes(total)} across ${sized.length} files; the limit is ${formatBytes(maxUploadBytes)}.`,
+      "Largest files:",
+      ...largest,
+      "Add directories or files to excludedPaths in config.json. Raising maxUploadBytes past 100 MB does not help: Box rejects larger uploads.",
+    ].join("\n"),
+    { totalBytes: total, maxUploadBytes, largest: sized.slice(0, LARGEST_FILES_SHOWN) },
+  );
 }
 
 export function formatBytes(bytes: number): string {

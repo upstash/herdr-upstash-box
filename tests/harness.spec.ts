@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertHarnessSupportsModel,
   getHarness,
+  credentialCandidates,
   launchEnv,
   modelArg,
   providerFor,
@@ -61,38 +62,67 @@ describe("modelArg", () => {
   });
 });
 
+describe("credentialCandidates", () => {
+  it("lets Claude Code use a subscription token before an Anthropic key", () => {
+    expect(credentialCandidates(getHarness(Agent.ClaudeCode), "anthropic/claude-sonnet-5")).toEqual(
+      ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+    );
+    expect(credentialCandidates(getHarness(Agent.ClaudeCode), OR_SONNET)).toEqual([
+      "OPENROUTER_API_KEY",
+    ]);
+    expect(credentialCandidates(getHarness(Agent.OpenCode), "anthropic/claude-sonnet-5")).toEqual([
+      "ANTHROPIC_API_KEY",
+    ]);
+  });
+});
+
 describe("launchEnv", () => {
+  const key = (name: string, value = "k") => ({ name, value });
+
   it("points Claude Code at the OpenRouter Anthropic-compatible endpoint", () => {
-    expect(launchEnv(getHarness(Agent.ClaudeCode), OR_SONNET, "k")).toEqual([
-      "ANTHROPIC_AUTH_TOKEN=k",
+    expect(launchEnv(getHarness(Agent.ClaudeCode), OR_SONNET, key("OPENROUTER_API_KEY"))).toEqual([
       "ANTHROPIC_API_KEY=",
+      "ANTHROPIC_AUTH_TOKEN=k",
+      "CLAUDE_CODE_OAUTH_TOKEN=",
       "ANTHROPIC_BASE_URL=https://openrouter.ai/api",
     ]);
   });
 
-  it("leaves the base URL alone when the key is a direct Anthropic key", () => {
-    expect(launchEnv(getHarness(Agent.ClaudeCode), "anthropic/claude-sonnet-4-5", "k")).toEqual([
-      "ANTHROPIC_API_KEY=k",
-    ]);
+  it("sets exactly one Claude credential and blanks the competing ones", () => {
+    expect(
+      launchEnv(
+        getHarness(Agent.ClaudeCode),
+        "anthropic/claude-sonnet-4-5",
+        key("ANTHROPIC_API_KEY"),
+      ),
+    ).toEqual(["ANTHROPIC_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=", "CLAUDE_CODE_OAUTH_TOKEN="]);
+    expect(
+      launchEnv(
+        getHarness(Agent.ClaudeCode),
+        "anthropic/claude-sonnet-5",
+        key("CLAUDE_CODE_OAUTH_TOKEN", "t"),
+      ),
+    ).toEqual(["ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=", "CLAUDE_CODE_OAUTH_TOKEN=t"]);
   });
 
   it("uses each provider's own variable for OpenCode", () => {
-    expect(launchEnv(getHarness(Agent.OpenCode), OR_SONNET, "k")).toEqual(["OPENROUTER_API_KEY=k"]);
-    expect(launchEnv(getHarness(Agent.OpenCode), "opencode/claude-sonnet-5", "k")).toEqual([
-      "OPENCODE_API_KEY=k",
+    expect(launchEnv(getHarness(Agent.OpenCode), OR_SONNET, key("OPENROUTER_API_KEY"))).toEqual([
+      "OPENROUTER_API_KEY=k",
     ]);
+    expect(
+      launchEnv(getHarness(Agent.OpenCode), "opencode/claude-sonnet-5", key("OPENCODE_API_KEY")),
+    ).toEqual(["OPENCODE_API_KEY=k"]);
   });
 
   it("refuses Codex on a provider that does not serve the Responses API", () => {
-    expect(() => launchEnv(getHarness(Agent.Codex), "openrouter/openai/gpt-4.1", "k")).toThrow(
-      /Responses API/,
-    );
+    expect(() =>
+      launchEnv(getHarness(Agent.Codex), "openrouter/openai/gpt-4.1", key("OPENROUTER_API_KEY")),
+    ).toThrow(/Responses API/);
   });
 
   it("allows Codex on a direct OpenAI key", () => {
-    expect(launchEnv(getHarness(Agent.Codex), "openai/gpt-5.3-codex", "k")).toEqual([
-      "OPENAI_API_KEY=k",
-      "CODEX_API_KEY=k",
-    ]);
+    expect(
+      launchEnv(getHarness(Agent.Codex), "openai/gpt-5.3-codex", key("OPENAI_API_KEY")),
+    ).toEqual(["OPENAI_API_KEY=k", "CODEX_API_KEY=k"]);
   });
 });

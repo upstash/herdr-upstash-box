@@ -73,6 +73,29 @@ export function providerKeyEnv(model: string): string {
   return PROVIDER_KEY_ENV[providerFor(model)];
 }
 
+// A subscription token from `claude setup-token`; only Claude Code itself reads it.
+export const CLAUDE_OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN";
+
+export const DEFAULT_MODELS: Readonly<Record<HarnessId, string>> = Object.freeze({
+  "claude-code": "anthropic/claude-sonnet-5",
+  codex: "openai/gpt-5.6",
+  opencode: "anthropic/claude-sonnet-5",
+});
+
+export interface ProviderKey {
+  name: string;
+  value: string;
+}
+
+// Variables that may carry the credential for this harness and model, most preferred first.
+export function credentialCandidates(harness: Harness, model: string): string[] {
+  const provider = providerFor(model);
+  if (harness.id === "claude-code" && provider === "anthropic") {
+    return [CLAUDE_OAUTH_TOKEN_ENV, PROVIDER_KEY_ENV.anthropic];
+  }
+  return [PROVIDER_KEY_ENV[provider]];
+}
+
 export function assertHarnessSupportsModel(harness: Harness, model: string): Provider {
   const provider = providerFor(model);
   if (SUPPORTED_PROVIDERS[harness.id].includes(provider)) return provider;
@@ -93,23 +116,33 @@ export function modelArg(harness: Harness, model: string): string {
   return model.slice(model.indexOf("/") + 1);
 }
 
-export function launchEnv(harness: Harness, model: string, apiKey: string): string[] {
+const CLAUDE_AUTH_VARS = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", CLAUDE_OAUTH_TOKEN_ENV];
+
+// Exactly one Claude credential is set; the others are blanked so nothing inherited can win.
+function claudeEnv(assignments: Record<string, string>): string[] {
+  return CLAUDE_AUTH_VARS.map((name) => `${name}=${assignments[name] ?? ""}`);
+}
+
+export function launchEnv(harness: Harness, model: string, key: ProviderKey): string[] {
   const provider = assertHarnessSupportsModel(harness, model);
   switch (harness.id) {
     case Agent.ClaudeCode:
       // Claude Code 2.1+ sends ANTHROPIC_AUTH_TOKEN as Authorization: Bearer.
       // ANTHROPIC_API_KEY is x-api-key and must be blank or it falls back to Anthropic/Max.
-      return provider === "openrouter"
-        ? [
-            `ANTHROPIC_AUTH_TOKEN=${apiKey}`,
-            "ANTHROPIC_API_KEY=",
-            "ANTHROPIC_BASE_URL=https://openrouter.ai/api",
-          ]
-        : [`ANTHROPIC_API_KEY=${apiKey}`];
+      if (provider === "openrouter") {
+        return [
+          ...claudeEnv({ ANTHROPIC_AUTH_TOKEN: key.value }),
+          "ANTHROPIC_BASE_URL=https://openrouter.ai/api",
+        ];
+      }
+      return claudeEnv({
+        [key.name === CLAUDE_OAUTH_TOKEN_ENV ? CLAUDE_OAUTH_TOKEN_ENV : "ANTHROPIC_API_KEY"]:
+          key.value,
+      });
     case Agent.OpenCode:
-      return [`${PROVIDER_KEY_ENV[provider]}=${apiKey}`];
+      return [`${PROVIDER_KEY_ENV[provider]}=${key.value}`];
     case Agent.Codex:
-      return [`OPENAI_API_KEY=${apiKey}`, `CODEX_API_KEY=${apiKey}`];
+      return [`OPENAI_API_KEY=${key.value}`, `CODEX_API_KEY=${key.value}`];
     default:
       throw new PluginError("unsupported_harness", `No launch environment for ${harness.id}.`);
   }

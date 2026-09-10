@@ -50,6 +50,49 @@ export async function waitForDismiss(
   await askWithTimeout(message, timeoutMs).catch(() => null);
 }
 
+// Reads a secret without echoing it, so a key never lands in the pane scrollback.
+export async function askHidden(
+  question: string,
+  timeoutMs = DISMISS_TIMEOUT_MS,
+): Promise<string | null> {
+  if (!isInteractive()) {
+    throw new PluginError(
+      "interactive_terminal_required",
+      "This operation needs an interactive Herdr terminal.",
+    );
+  }
+  const stdin = process.stdin;
+  process.stdout.write(question);
+  const wasRaw = stdin.isRaw ?? false;
+  stdin.setRawMode(true);
+  stdin.setEncoding("utf8");
+  stdin.resume();
+  return new Promise((resolve) => {
+    let buffer = "";
+    const finish = (value: string | null) => {
+      clearTimeout(timer);
+      stdin.off("data", onData);
+      stdin.setRawMode(wasRaw);
+      stdin.pause();
+      process.stdout.write("\n");
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const onData = (chunk: string) => {
+      for (const character of chunk) {
+        if (character === "\u0003") return finish(null);
+        if (character === "\r" || character === "\n") return finish(buffer);
+        if (character === "\u007f" || character === "\b") {
+          buffer = buffer.slice(0, -1);
+        } else if (character >= " ") {
+          buffer += character;
+        }
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
 export async function askWithTimeout(question: string, timeoutMs: number): Promise<string | null> {
   if (!isInteractive()) {
     throw new PluginError(

@@ -17,6 +17,34 @@ command = ["npm", "run", "build"]
 command = ["npm", "prune", "--omit=dev"]
 
 [[actions]]
+id = "setup"
+title = "Set up Upstash Box"
+description = "Save your Upstash Box API key, agent, mode, and provider credential, validating the key first."
+contexts = ["global", "workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "start-claude"
+title = "Start Claude Code in Upstash Box"
+description = "Start this worktree on Claude Code for one launch, leaving config.json unchanged."
+contexts = ["workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "start-codex"
+title = "Start Codex in Upstash Box"
+description = "Start this worktree on Codex for one launch, leaving config.json unchanged."
+contexts = ["workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
+id = "start-opencode"
+title = "Start OpenCode in Upstash Box"
+description = "Start this worktree on OpenCode for one launch, leaving config.json unchanged."
+contexts = ["workspace", "pane"]
+command = ["node", "dist/action.js"]
+
+[[actions]]
 id = "start-agent"
 title = "Start agent in Upstash Box"
 description = "Create a box for the focused Git worktree and open the configured agent in a new pane."
@@ -120,6 +148,14 @@ title = "Manage Upstash Box schedules"
 description = "List, create, pause, resume, and delete server-side agent schedules."
 contexts = ["pane"]
 command = ["node", "dist/action.js"]
+
+[[panes]]
+id = "setup"
+title = "Set up Upstash Box"
+placement = "popup"
+width = "80%"
+height = "75%"
+command = ["node", "dist/setup-pane.js"]
 
 [[panes]]
 id = "start"

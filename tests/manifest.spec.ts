@@ -6,6 +6,7 @@ import {
   formatBytes,
   formatManifestSummary,
   pathExclusionReason,
+  assertUploadFits,
 } from "../src/manifest.js";
 import { runSync } from "../src/process.js";
 import { makeGitRepository, remove, write } from "./helpers.js";
@@ -109,11 +110,30 @@ describe("buildUploadManifest", () => {
       /per-file limit/,
     );
     expect(() => buildUploadManifest(root, { ...DEFAULT_CONFIG, maxUploadBytes: 4 })).toThrow(
-      /filtered upload exceeds/,
+      /the limit is 4 B/,
     );
     expect(() => buildUploadManifest(root, { ...DEFAULT_CONFIG, maxFiles: 1 })).toThrow(
       /limit is 1/,
     );
+  });
+
+  it("names the total and the five largest files when the upload is too big", () => {
+    const sized = [..."abcdefg"].map((letter, index) => ({
+      path: `${letter}.bin`,
+      size: (index + 1) * 1000,
+    }));
+    expect(() => assertUploadFits(sized, 28_000)).not.toThrow();
+    let message = "";
+    try {
+      assertUploadFits(sized, 5000);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(/27\.3 KB across 7 files; the limit is 4\.9 KB/);
+    expect(message).toMatch(/g\.bin \(6\.8 KB\)/);
+    expect(message).toMatch(/c\.bin/);
+    expect(message).not.toMatch(/b\.bin/);
+    expect(message).toMatch(/excludedPaths/);
   });
 
   it("scans whole text files for secrets", () => {

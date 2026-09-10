@@ -36,7 +36,12 @@ export function forkCreateConfig(
   const key =
     original.credential === "local"
       ? requireProviderApiKey(
-          { providerApiKeyEnv: config.providerApiKeyEnv, model: original.model, mode: "native" },
+          {
+            providerApiKeyEnv: config.providerApiKeyEnv,
+            model: original.model,
+            harness: original.harness,
+            mode: "native",
+          },
           keys,
         )
       : null;
