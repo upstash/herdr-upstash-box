@@ -105,6 +105,12 @@ describe("launchEnv", () => {
     ).toEqual(["ANTHROPIC_API_KEY=", "ANTHROPIC_AUTH_TOKEN=", "CLAUDE_CODE_OAUTH_TOKEN=t"]);
   });
 
+  it("refuses to send a subscription token to OpenRouter", () => {
+    expect(() =>
+      launchEnv(getHarness(Agent.ClaudeCode), OR_SONNET, key("CLAUDE_CODE_OAUTH_TOKEN", "t")),
+    ).toThrow(/cannot be used with openrouter/);
+  });
+
   it("uses each provider's own variable for OpenCode", () => {
     expect(launchEnv(getHarness(Agent.OpenCode), OR_SONNET, key("OPENROUTER_API_KEY"))).toEqual([
       "OPENROUTER_API_KEY=k",

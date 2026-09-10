@@ -75,6 +75,22 @@ describe("keys", () => {
     );
   });
 
+  it("ignores a subscription-token name for a mapping on an openrouter/ model", () => {
+    const env = { CLAUDE_CODE_OAUTH_TOKEN: "t", OPENROUTER_API_KEY: "or" };
+    const setupShaped = { ...DEFAULT_CONFIG, providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN" };
+    const openrouterBox = {
+      harness: "claude-code" as const,
+      model: "openrouter/anthropic/claude-sonnet-5",
+    };
+    expect(credentialConfigFor(setupShaped, openrouterBox).providerApiKeyEnv).toBeNull();
+    expect(
+      providerApiKey(credentialConfigFor(setupShaped, openrouterBox), { env, secrets: {} }),
+    ).toEqual({ name: "OPENROUTER_API_KEY", value: "or" });
+    // A custom name is the user's own override and survives as long as the harness matches.
+    const custom = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
+    expect(credentialConfigFor(custom, openrouterBox).providerApiKeyEnv).toBe("MY_KEY");
+  });
+
   it("lets config name the variable and explains what each mode needs", () => {
     const config = { ...DEFAULT_CONFIG, providerApiKeyEnv: "MY_KEY" };
     expect(providerApiKey(config, { env: { MY_KEY: "v" }, secrets: {} })?.value).toBe("v");

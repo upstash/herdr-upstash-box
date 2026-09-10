@@ -3,7 +3,12 @@ import path from "node:path";
 import { Box, BoxError, type BoxConfig, type BoxData } from "@upstash/box";
 import { loadSecrets, resolveSecret, type PluginConfig, type Secrets } from "./config.js";
 import { BOX_API_KEY_ENV, BOX_LABEL, MAX_BOX_NAME_LENGTH } from "./constants.js";
-import { credentialCandidates, getHarness, type ProviderKey } from "./harness.js";
+import {
+  credentialCandidates,
+  getHarness,
+  STANDARD_CREDENTIAL_NAMES,
+  type ProviderKey,
+} from "./harness.js";
 import { PluginError } from "./result.js";
 import type { Mapping } from "./state.js";
 
@@ -53,17 +58,22 @@ export function providerKeyCandidates(config: CredentialConfig): string[] {
   return credentialCandidates(getHarness(config.harness), config.model);
 }
 
-// providerApiKeyEnv is written for the configured harness. A mapping started on another harness
-// through start-codex or start-opencode must not read a variable named for Claude Code.
+// providerApiKeyEnv is written for the configured harness and model. A mapping on another harness
+// (start-codex, start-opencode) or another provider (a box created on an openrouter/ model before
+// the config moved to a subscription token) must not read a variable that does not fit it. A name
+// outside the standard set is the user's own override and is kept as long as the harness matches.
 export function credentialConfigFor(
   config: Pick<PluginConfig, "providerApiKeyEnv" | "harness">,
   mapping: Pick<Mapping, "harness" | "model">,
 ): CredentialConfig {
-  return {
-    providerApiKeyEnv: config.harness === mapping.harness ? config.providerApiKeyEnv : null,
-    harness: mapping.harness,
-    model: mapping.model,
-  };
+  const name = config.providerApiKeyEnv;
+  const harness = getHarness(mapping.harness);
+  const fits =
+    name !== null &&
+    config.harness === mapping.harness &&
+    (!STANDARD_CREDENTIAL_NAMES.has(name) ||
+      credentialCandidates(harness, mapping.model).includes(name));
+  return { providerApiKeyEnv: fits ? name : null, harness: mapping.harness, model: mapping.model };
 }
 
 export function providerKeyName(config: CredentialConfig): string {

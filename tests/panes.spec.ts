@@ -83,6 +83,33 @@ const fakeAttach = async (_box: unknown, _options: AttachOptions): Promise<Attac
 const live = async () => ({ status: "running" as const, resumed: false });
 
 describe("runAgentPane", () => {
+  it("reconnects an openrouter/ box on its OpenRouter key even after setup chose the subscription", async () => {
+    const state = await stateWith(
+      sampleMapping({ model: "openrouter/anthropic/claude-sonnet-5", everAttached: true }),
+    );
+    const { box } = fakeBox();
+    let attachOptions: AttachOptions | undefined;
+    const code = await runAgentPane(MAPPING_ID, {
+      env: {
+        ...tuiEnv,
+        CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-token",
+        OPENROUTER_API_KEY: "or-secret",
+      },
+      state,
+      config: { ...DEFAULT_CONFIG, providerApiKeyEnv: "CLAUDE_CODE_OAUTH_TOKEN" },
+      client: fakeClient({ "box-1": box }),
+      attach: async (target, options) => {
+        attachOptions = options;
+        return fakeAttach(target, options);
+      },
+      bridge: async () => 0,
+      write: quiet,
+      ensureRunning: live,
+    });
+    expect(code).toBe(0);
+    expect(attachOptions?.credential).toEqual({ name: "OPENROUTER_API_KEY", value: "or-secret" });
+  });
+
   it("never reads a Claude credential name from config into a Codex reconnect", async () => {
     const state = await stateWith(
       sampleMapping({ harness: "codex", model: "openai/gpt-5.6", everAttached: true }),
