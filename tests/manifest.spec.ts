@@ -8,6 +8,7 @@ import {
   formatManifestSummary,
   pathExclusionReason,
   assertUploadFits,
+  heaviestDirectories,
 } from "../src/manifest.js";
 import { runSync } from "../src/process.js";
 import { makeGitRepository, remove, write } from "./helpers.js";
@@ -148,6 +149,26 @@ describe("buildUploadManifest", () => {
       "d.bin",
       "c.bin",
     ]);
+  });
+
+  it("names the heaviest directories when the weight is spread over many small files", () => {
+    const sized = [
+      ...Array.from({ length: 400 }, (_, index) => ({ path: `img/a/${index}.png`, size: 250_000 })),
+      { path: "llms-full.txt", size: 3_300_000 },
+      { path: "redis/big.mdx", size: 900_000 },
+      { path: "README.md", size: 100 },
+    ];
+    let message = "";
+    try {
+      assertUploadFits(sized, 50_000_000);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toMatch(
+      /Heaviest directories:\n  img\/ \(95\.4 MB, 400 files\)\n  redis\/ \(878\.9 KB, 1 file\)/,
+    );
+    expect(message.indexOf("Heaviest directories")).toBeLessThan(message.indexOf("Largest files"));
+    expect(heaviestDirectories([{ path: "root.txt", size: 5 }])).toEqual([]);
   });
 
   it("scans whole text files for secrets", () => {
