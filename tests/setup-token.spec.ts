@@ -148,6 +148,7 @@ function fakeChild() {
 }
 
 const noKill = () => undefined;
+const noTerminal = { save: () => null, restore: () => undefined };
 
 describe("captureSetupToken", () => {
   it("resolves as soon as the token is printed, stops the command, and never shows the token", async () => {
@@ -155,6 +156,7 @@ describe("captureSetupToken", () => {
     const shown: string[] = [];
     let killed = 0;
     const pending = captureSetupToken({
+      terminal: noTerminal,
       write: (chunk) => void shown.push(chunk),
       spawnImpl: () => child as unknown as ChildProcess,
       killTree: () => {
@@ -175,6 +177,7 @@ describe("captureSetupToken", () => {
   it("captures a token the terminal wrapped, and one printed on stderr", async () => {
     const wrappedChild = fakeChild();
     const wrapped = captureSetupToken({
+      terminal: noTerminal,
       write: () => undefined,
       spawnImpl: () => wrappedChild as unknown as ChildProcess,
       killTree: noKill,
@@ -185,6 +188,7 @@ describe("captureSetupToken", () => {
     const errChild = fakeChild();
     const shown: string[] = [];
     const viaStderr = captureSetupToken({
+      terminal: noTerminal,
       write: (chunk) => void shown.push(chunk),
       spawnImpl: () => errChild as unknown as ChildProcess,
       killTree: noKill,
@@ -197,6 +201,7 @@ describe("captureSetupToken", () => {
   it("resolves null when the command exits without printing a token", async () => {
     const child = fakeChild();
     const pending = captureSetupToken({
+      terminal: noTerminal,
       write: () => undefined,
       spawnImpl: () => child as unknown as ChildProcess,
       killTree: noKill,
@@ -211,6 +216,7 @@ describe("captureSetupToken", () => {
     const shown: string[] = [];
     let killed = 0;
     const pending = captureSetupToken({
+      terminal: noTerminal,
       write: (chunk) => void shown.push(chunk),
       spawnImpl: () => child as unknown as ChildProcess,
       killTree: () => {
@@ -226,6 +232,7 @@ describe("captureSetupToken", () => {
   it("keeps a token that was printed without a trailing line break when time runs out", async () => {
     const child = fakeChild();
     const pending = captureSetupToken({
+      terminal: noTerminal,
       write: () => undefined,
       spawnImpl: () => child as unknown as ChildProcess,
       killTree: noKill,
@@ -240,6 +247,7 @@ describe("captureSetupToken", () => {
     const child = fakeChild();
     const shown: string[] = [];
     const pending = captureSetupToken({
+      terminal: noTerminal,
       write: (chunk) => void shown.push(chunk),
       spawnImpl: () => child as unknown as ChildProcess,
       killTree: noKill,
@@ -256,6 +264,38 @@ describe("captureSetupToken", () => {
     expect(text).not.toContain(TOKEN.slice(79));
     expect(text).not.toContain("Store it");
     expect(text.split(CAPTURED_MARKER)).toHaveLength(2);
+  });
+
+  it("restores the terminal mode it saved before running script, however capture ends", async () => {
+    for (const ending of ["token", "close", "timeout"] as const) {
+      const child = fakeChild();
+      const calls: string[] = [];
+      const pending = captureSetupToken({
+        write: () => undefined,
+        spawnImpl: () => child as unknown as ChildProcess,
+        killTree: noKill,
+        terminal: { save: () => "saved-mode", restore: (m) => void calls.push(m) },
+        timeoutMs: ending === "timeout" ? 20 : undefined,
+      });
+      if (ending === "token") child.stdout.write(`${TOKEN}\n`);
+      if (ending === "close") child.emit("close", 1);
+      await pending;
+      expect(calls).toEqual(["saved-mode"]);
+    }
+  });
+
+  it("does not try to restore a terminal it could not read", async () => {
+    const child = fakeChild();
+    let restored = 0;
+    const pending = captureSetupToken({
+      write: () => undefined,
+      spawnImpl: () => child as unknown as ChildProcess,
+      killTree: noKill,
+      terminal: { save: () => null, restore: () => void (restored += 1) },
+    });
+    child.emit("close", 0);
+    await pending;
+    expect(restored).toBe(0);
   });
 
   it("returns null on Windows, where script is not available", async () => {

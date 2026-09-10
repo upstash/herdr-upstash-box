@@ -145,11 +145,34 @@ export function captureCommand(platform: NodeJS.Platform = process.platform): {
     : { command: "script", args: ["-q", "-f", "-c", INNER, "/dev/null"] };
 }
 
+export interface TerminalMode {
+  save(): string | null;
+  restore(mode: string): void;
+}
+
+// `script` puts the popup's own terminal into raw mode and restores it on a normal exit, but the
+// command is stopped as soon as the token appears, and a SIGKILL a second later skips the restore.
+// Left raw, the terminal stops turning "\n" into "\r\n" and every later line starts mid-screen.
+export const sttyTerminalMode: TerminalMode = {
+  save() {
+    if (!process.stdin.isTTY) return null;
+    const result = spawnSync("stty", ["-g"], {
+      stdio: ["inherit", "pipe", "ignore"],
+      encoding: "utf8",
+    });
+    return result.status === 0 ? result.stdout.trim() : null;
+  },
+  restore(mode) {
+    spawnSync("stty", [mode], { stdio: ["inherit", "ignore", "ignore"] });
+  },
+};
+
 export interface CaptureOptions {
   write: Writer;
   timeoutMs?: number;
   spawnImpl?: (command: string, args: string[]) => ChildProcess;
   killTree?: (child: ChildProcess) => void;
+  terminal?: TerminalMode;
   platform?: NodeJS.Platform;
 }
 
@@ -162,6 +185,8 @@ export const HOLD_MS = 300;
 export function captureSetupToken(options: CaptureOptions): Promise<string | null> {
   const spec = captureCommand(options.platform);
   if (!spec) return Promise.resolve(null);
+  const terminal = options.terminal ?? sttyTerminalMode;
+  const mode = terminal.save();
   const child = (options.spawnImpl ?? defaultSpawn)(spec.command, spec.args);
   const out = new TokenFilter();
   const err = new TokenFilter();
@@ -174,6 +199,7 @@ export function captureSetupToken(options: CaptureOptions): Promise<string | nul
       settled = true;
       clearTimeout(timer);
       clearTimeout(hold);
+      if (mode !== null) terminal.restore(mode);
       resolve(value);
     };
     const captured = () => out.token ?? err.token;
